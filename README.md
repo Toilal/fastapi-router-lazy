@@ -83,6 +83,13 @@ Without the middleware you can also mount everything immediately — useful in
 tests or when you don't want the first-request penalty:
 
 ```python
+from fastapi import FastAPI
+
+from fastapi_router_lazy import RouterLoader, route_infos_extractor
+
+app = FastAPI()
+loader = RouterLoader(route_infos_extractor("myapp"), app)
+
 loader.load()  # imports and mounts every scanned router now
 ```
 
@@ -91,6 +98,14 @@ loader.load()  # imports and mounts every scanned router now
 Tag routes with a `deployment` and only mount the ones a given process serves:
 
 ```python
+from fastapi import FastAPI
+
+from fastapi_router_lazy import RouterLoader, route_infos_extractor
+
+app = FastAPI()
+extractor = route_infos_extractor("myapp")
+
+# Only routes tagged for the "api" deployment are mounted.
 loader = RouterLoader(extractor, app, deployments={"api"})
 ```
 
@@ -109,7 +124,13 @@ Wrap any extractor in a checksum cache so subsequent starts reuse the result and
 only re-extract modules whose source changed:
 
 ```python
-extractor = route_infos_extractor("myapp", cache=True, cache_file="routes.json")
+from pathlib import Path
+
+from fastapi_router_lazy import route_infos_extractor
+
+extractor = route_infos_extractor(
+    "myapp", cache=True, cache_file=Path("routes.json")
+)
 ```
 
 Generate the cache at build time and set `strict=True` at runtime to fail fast
@@ -123,10 +144,13 @@ enumerates all of them **without** importing the route handlers or building the
 routes — it imports the module under `RouterWrapper.recording(...)`:
 
 ```python
+from fastapi import FastAPI
 from fastapi_router_variants import RouterWrapper
 
 from fastapi_router_lazy import RouterLoader
 from fastapi_router_lazy.extractors.variants import RecordingRouteInfosExtractor
+
+app = FastAPI()
 
 extractor = RecordingRouteInfosExtractor(RouterWrapper, "myapp")
 loader = RouterLoader(extractor, app)

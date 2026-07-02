@@ -40,19 +40,21 @@ Changelog = "https://github.com/Toilal/fastapi-router-lazy/blob/develop/CHANGELO
 Issues = "https://github.com/Toilal/fastapi-router-lazy/issues"
 
 [dependency-groups]
+lint = [
+    "ruff",
+    "mypy",
+]
 test = [
     "pytest",
     "pytest-asyncio",
     "pytest-cov",
     "httpx",
-]
-lint = [
-    "ruff",
-    "mypy",
+    # The README examples are type-checked and linted as a test (test_readme.py),
+    # so ruff + mypy must be present in the test environment too.
+    { include-group = "lint" },
 ]
 dev = [
     { include-group = "test" },
-    { include-group = "lint" },
     # The variant integration module is part of the codebase, so the dev/CI env
     # installs fastapi-router-variants to type-check and test it.
     "fastapi-router-variants",
