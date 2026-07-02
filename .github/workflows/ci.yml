@@ -1,0 +1,233 @@
+name: ci
+on:
+  push: ~
+  pull_request: ~
+jobs:
+  ci:
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+
+    name: Python ${{ matrix.python-version }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: [ "3.12", "3.13", "3.14" ]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.2.0
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+
+      - name: Install Dependencies (core only, no variants extra)
+        run: uv sync --locked --no-dev --group test
+
+      - name: Test
+        run: uv run --no-sync pytest --cov=fastapi_router_lazy
+
+      - name: Codecov
+        uses: codecov/codecov-action@v7
+
+  variants:
+    # The variant/version-aware extractors live behind the optional `variants`
+    # extra. The dev group pulls fastapi-router-variants (git source, see
+    # pyproject [tool.uv.sources]) so the variant integration tests actually run.
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
+
+    runs-on: ubuntu-latest
+
+    name: Variants integration
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.2.0
+        with:
+          python-version: "3.12"
+
+      - name: Install (with fastapi-router-variants from git)
+        run: uv sync
+
+      - name: Test
+        run: uv run --no-sync pytest
+
+  fastapi-compat:
+    # Core lazy loading only needs plain FastAPI routing/middleware. Validate
+    # against the supported floor (0.115) up to latest.
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
+
+    runs-on: ubuntu-latest
+
+    name: FastAPI ${{ matrix.fastapi-version }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        fastapi-version:
+          - "0.115.0"   # floor
+          - "0.120.2"
+          - "0.129.0"
+          - "0.139.0"   # latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.2.0
+        with:
+          python-version: "3.12"
+
+      - name: Install (core + test deps)
+        run: uv sync --no-dev --group test
+
+      - name: Force FastAPI ${{ matrix.fastapi-version }}
+        run: uv pip install "fastapi==${{ matrix.fastapi-version }}"
+
+      - name: Test
+        run: uv run --no-sync pytest
+
+  pre-commit:
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.2.0
+        with:
+          python-version: "3.14"
+
+      - name: Install dependencies (incl. fastapi-router-variants from git)
+        run: uv sync
+
+      - name: Run pre-commit
+        run: uv run pre-commit run --all-files --show-diff-on-failure
+
+  commitizen:
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.2.0
+        with:
+          python-version: "3.14"
+
+      - name: Check commit messages
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            RANGE="${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
+          elif [ "${{ github.event.before }}" = "0000000000000000000000000000000000000000" ] \
+            || ! git cat-file -e "${{ github.event.before }}^{commit}" 2>/dev/null; then
+            RANGE="HEAD~1..HEAD"
+          else
+            RANGE="${{ github.event.before }}..${{ github.event.after }}"
+          fi
+          echo "Checking commit range: ${RANGE}"
+          uv run cz check --rev-range "${RANGE}"
+
+  build:
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
+    needs: [ ci ]
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.2.0
+        with:
+          python-version: "3.14"
+          enable-cache: true
+
+      - name: Git User config
+        run: |
+          git config --global user.email "action@github.com"
+          git config --global user.name "github-actions"
+
+      - name: Bump version
+        run: uvx --from python-semantic-release semantic-release version --no-commit --no-tag --no-push
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build
+        run: uv build
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: fastapi-router-lazy-python
+          path: ./dist
+
+  release:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: [ pre-commit, commitizen, build ]
+
+    runs-on: ubuntu-latest
+
+    environment: pypi
+
+    permissions:
+      contents: write   # semantic-release pushes the version bump commit + tag + GitHub release
+      id-token: write   # OIDC token for PyPI Trusted Publishing (no API token needed)
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.2.0
+        with:
+          python-version: "3.14"
+          enable-cache: true
+
+      - name: Git User config
+        run: |
+          git config --global user.email "action@github.com"
+          git config --global user.name "github-actions"
+
+      - name: Bump version
+        run: uvx --from python-semantic-release semantic-release version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build
+        run: uv build
+
+      - name: Upload to pypi
+        # Trusted Publishing via the job's OIDC token (see permissions above);
+        # requires a trusted publisher configured on PyPI for this repo + ci.yml.
+        run: uv publish --trusted-publishing always dist/*.tar.gz dist/*.whl
+
+      - name: Publish release
+        run: uvx --from python-semantic-release semantic-release publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Merge main to develop
+        uses: robotology/gh-action-nightly-merge@v1.5.2
+        with:
+          stable_branch: 'main'
+          development_branch: 'develop'
+          allow_ff: true
+          user_name: github-actions
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
