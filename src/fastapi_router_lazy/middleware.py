@@ -25,8 +25,12 @@ LAZY_LOADING_ROUTER_HEADER_BYTES = LAZY_LOADING_ROUTER_HEADER.encode("ascii")
 
 
 class LazyMiddleware(LazyRouteRegistry):
+    app: ASGIApp
     app_stub: FastAPI = FastAPI()
     _on_all_stubs_consumed: Callable[[], object] | None = None
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
 
     @abstractmethod
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None: ...
@@ -96,9 +100,6 @@ class LazyMiddleware(LazyRouteRegistry):
 def factory(router_loader: RouterLoader) -> type[LazyMiddleware]:
     class LazyMiddlewareInstance(LazyMiddleware):
         """ASGI middleware loading router modules on the first matching call."""
-
-        def __init__(self, app: ASGIApp) -> None:
-            self.app = app
 
         async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
             if scope["type"] != "http" and scope["type"] != "websocket":
