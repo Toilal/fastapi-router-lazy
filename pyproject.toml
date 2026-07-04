@@ -53,8 +53,12 @@ test = [
     # so ruff + mypy must be present in the test environment too.
     { include-group = "lint" },
 ]
+docs = [
+    "zensical",
+]
 dev = [
     { include-group = "test" },
+    { include-group = "docs" },
     # The variant integration module is part of the codebase, so the dev/CI env
     # installs fastapi-router-variants to type-check and test it.
     "fastapi-router-variants",

@@ -156,6 +156,13 @@ extractor = RecordingRouteInfosExtractor(RouterWrapper, "myapp")
 loader = RouterLoader(extractor, app)
 ```
 
+## Documentation
+
+Full documentation is published at
+[toilal.github.io/fastapi-router-lazy](https://toilal.github.io/fastapi-router-lazy).
+A preview of the in-development `develop` branch is available at
+[toilal.github.io/fastapi-router-lazy/dev/](https://toilal.github.io/fastapi-router-lazy/dev/).
+
 ## License
 
 MIT
