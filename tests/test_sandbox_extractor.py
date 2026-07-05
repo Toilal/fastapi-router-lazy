@@ -1,8 +1,11 @@
+import sys
+
 import pytest
 from conftest import MakePackage
 
 import fastapi_router_lazy.extractors.sandbox as sandbox_module
 from fastapi_router_lazy import (
+    ExtractedRouteInfo,
     ExtractorDefaults,
     SandboxRouteInfosExtractor,
     extract_routes_sandboxed,
@@ -110,9 +113,11 @@ def test_sandbox_routeless_module_does_not_respawn(
     spawns: list[list[str]] = []
     original = sandbox_module.extract_routes_sandboxed
 
-    def _counting(modules: list[str], *args: object, **kwargs: object) -> object:
+    def _counting(
+        modules: list[str], python_executable: str = sys.executable
+    ) -> list[ExtractedRouteInfo]:
         spawns.append(modules)
-        return original(modules, *args, **kwargs)
+        return original(modules, python_executable)
 
     monkeypatch.setattr(sandbox_module, "extract_routes_sandboxed", _counting)
 
