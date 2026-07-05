@@ -666,6 +666,7 @@ variant-aware one), or <code>defaults=</code> to supply custom <code>ExtractorDe
 <tr>
 <th>Extractor</th>
 <th>Extra</th>
+<th>Defers imports?</th>
 <th>Notes</th>
 </tr>
 </thead>
@@ -673,29 +674,44 @@ variant-aware one), or <code>defaults=</code> to supply custom <code>ExtractorDe
 <tr>
 <td><code>PlainRouteInfosExtractor</code></td>
 <td>—</td>
+<td>No</td>
 <td>Default. Imports the module, reads <code>APIRouter.routes</code>.</td>
 </tr>
 <tr>
 <td><code>SandboxRouteInfosExtractor</code></td>
 <td>—</td>
+<td>Yes (child process)</td>
 <td>Isolates the imports in a subprocess.</td>
 </tr>
 <tr>
 <td><code>CachedRouteInfosExtractor</code></td>
 <td>—</td>
+<td>Yes (on cache hit)</td>
 <td>Persists extraction to a checksum-keyed JSON cache.</td>
 </tr>
 <tr>
 <td><code>RecordingRouteInfosExtractor</code></td>
 <td><code>variants</code></td>
+<td>Yes</td>
 <td>Variant/version-aware; extracts <strong>without</strong> importing route handlers.</td>
 </tr>
 </tbody>
 </table>
+<p>"Defers imports?" is whether the extractor lets the application start <em>without</em>
+importing the router modules — the startup gain behind lazy loading. With the
+default <code>Plain</code> extractor it does not: every scanned module is imported when
+<code>loader.load(...)</code> enumerates its routes.</p>
 <h3 id="plain-default">Plain (default)<a class="headerlink" href="#plain-default" title="Permanent link">&para;</a></h3>
 <p><code>PlainRouteInfosExtractor</code> needs nothing but FastAPI. It imports the target
 module (running its handlers' import-time side effects), finds every <code>APIRouter</code>
 exposed as a module attribute, and reads their already-built routes.</p>
+<p>Because it imports each module to read its routes, <code>Plain</code> does <strong>not</strong> defer
+imports: with the default extractor every router module is imported at startup,
+when <code>loader.load(...)</code> runs. Its value is on-demand <em>mounting</em> (a small mounted
+route table, deployment filtering), not a startup import saving. To also defer
+the imports, feed the loader prebuilt metadata via a warm <a href="#cached">cache</a>, the
+<a href="#sandbox">Sandbox</a> extractor, or the <a href="#variantversion-aware-variants">variant-aware</a>
+one.</p>
 <p>The module-level helper <code>extract_routes_from_module(module_name)</code> performs a
 single-module extraction without any surrounding extractor.</p>
 <h3 id="sandbox">Sandbox<a class="headerlink" href="#sandbox" title="Permanent link">&para;</a></h3>
