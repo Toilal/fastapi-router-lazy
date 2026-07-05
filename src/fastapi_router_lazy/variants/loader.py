@@ -7,8 +7,6 @@ for ``RouterWrapper``: it unwraps the wrapper to its underlying ``APIRouter``
 the application.
 """
 
-from typing import Any
-
 from fastapi import APIRouter, FastAPI
 from starlette.routing import BaseRoute
 
@@ -48,7 +46,7 @@ class VariantsRouterLoader(RouterLoader):
         cls,
         app: FastAPI | APIRouter | None,
         router: APIRouter,
-        parent_router: Any | None,
+        parent_router: RouterWrapper | None,
     ) -> list[BaseRoute]:
         if parent_router is None:
             return cls._include_router(app, router)
