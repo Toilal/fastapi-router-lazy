@@ -52,6 +52,10 @@ jobs:
 
     name: Variants integration
 
+    permissions:
+      contents: read
+      id-token: write   # OIDC token for Codecov upload
+
     steps:
       - uses: actions/checkout@v7
 
