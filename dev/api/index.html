@@ -1265,8 +1265,9 @@ implements it.</p>
 loads the real router, removes the consumed stubs, and lets the request fall
 through. Also exported under its internal name <code>factory</code>.</p>
 <h3 id="lazymiddleware"><code>LazyMiddleware</code><a class="headerlink" href="#lazymiddleware" title="Permanent link">&para;</a></h3>
-<p>Base ASGI middleware / <code>LazyRouteRegistry</code>. Holds the stub routes on a
-class-level <code>app_stub: FastAPI</code>. Notable members:</p>
+<p>Base ASGI middleware / <code>LazyRouteRegistry</code>. Each subclass built by
+<code>lazy_middleware_factory</code> holds the stub routes on its own <code>app_stub: FastAPI</code>.
+Notable members:</p>
 <ul>
 <li><code>register_lazy_routes(module_route_infos)</code> — add a stub route (HTTP or
   websocket) per <code>ExtractedRouteInfo</code>.</li>

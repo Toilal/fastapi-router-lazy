@@ -659,9 +659,9 @@ loader, ready to hand to <code>app.add_middleware</code>.</p>
    <code>x-fastapi-router-lazy-loading-router</code> header on the response so you can
    observe which module was loaded.</li>
 </ol>
-<p>The stub routes are held on a class-level <code>FastAPI</code> app (<code>LazyMiddleware.app_stub</code>),
-shared by the middleware class. Requests that are neither HTTP nor websocket
-pass straight through.</p>
+<p>Each middleware built by <code>lazy_middleware_factory</code> gets its own <code>FastAPI</code> stub
+app (<code>app_stub</code>), so separate applications keep independent stub tables.
+Requests that are neither HTTP nor websocket pass straight through.</p>
 <h2 id="eager-loading">Eager loading<a class="headerlink" href="#eager-loading" title="Permanent link">&para;</a></h2>
 <p>Without the middleware you can mount everything immediately — useful in tests or
 when you don't want the first-request penalty. Call <code>loader.load()</code> with no
