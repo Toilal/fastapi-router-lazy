@@ -396,6 +396,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#limitations" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Limitations
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -568,6 +579,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#limitations" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Limitations
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -658,15 +680,14 @@ loader, ready to hand to <code>app.add_middleware</code>.</p>
 <p>On each incoming HTTP or websocket request, the middleware:</p>
 <ol>
 <li>looks for a stub route that fully matches the request;</li>
-<li>if one matches, tags the request scope with the
-   <code>x-fastapi-router-lazy-loading-router</code> header (module + router variable),
-   then calls <code>RouterLoader.load_router(module, variable)</code> to import the module
-   and mount the real router;</li>
+<li>if one matches, calls <code>RouterLoader.load_router(module, variable)</code> (both
+   derived from the stub name) to import the module and mount the real router;</li>
 <li>removes the consumed stub routes so subsequent requests hit the real router
    directly;</li>
 <li>lets the request fall through to the freshly-mounted route, and echoes the
    <code>x-fastapi-router-lazy-loading-router</code> header on the response so you can
-   observe which module was loaded.</li>
+   observe which module was loaded. The header is set on the response only; it
+   is never injected into the request the downstream handlers see.</li>
 </ol>
 <p>Each middleware built by <code>lazy_middleware_factory</code> gets its own <code>FastAPI</code> stub
 app (<code>app_stub</code>), so separate applications keep independent stub tables.
@@ -712,6 +733,11 @@ extractor's <code>defaults.deployment</code>.</p>
 </span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="c1"># Only routes tagged for the &quot;api&quot; deployment are mounted.</span>
 </span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="n">loader</span> <span class="o">=</span> <span class="n">RouterLoader</span><span class="p">(</span><span class="n">extractor</span><span class="p">,</span> <span class="n">app</span><span class="p">,</span> <span class="n">deployments</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;api&quot;</span><span class="p">})</span>
 </span></code></pre></div>
+<p>Filtering is <strong>per route</strong>: <code>filter_with_deployments</code> decides mount-or-not for
+each <code>ExtractedRouteInfo</code> individually, so a single router variable can have some
+of its routes mounted and others skipped depending on their tags. The <code>hidden</code>
+flag on a route (an internal-only route, served but not published) is metadata
+for consumers — the loader does <strong>not</strong> consult it when deciding what to mount.</p>
 <p>Deployment tags are populated by the variant-aware extractor; see
 <a href=".././extractors/">Extractors</a>.</p>
 <h2 id="custom-router-module-pattern">Custom router module pattern<a class="headerlink" href="#custom-router-module-pattern" title="Permanent link">&para;</a></h2>
@@ -730,6 +756,26 @@ wrapper before reaching the application. It is a drop-in <code>RouterLoader</cod
 subclass — use it in place of <code>RouterLoader</code> when your routers are wrappers. The
 core package never imports <code>fastapi_router_variants</code>, so plain-FastAPI projects
 pay nothing for the integration.</p>
+<h2 id="limitations">Limitations<a class="headerlink" href="#limitations" title="Permanent link">&para;</a></h2>
+<p>Lazy loading trades a little runtime dynamism for startup speed. Keep these in
+mind:</p>
+<ul>
+<li><strong>The schema is incomplete until routes are hit.</strong> A lazily-declared route is
+  absent from <code>/openapi.json</code> and <code>/docs</code> until its first matching request
+  mounts the real router. If you need a complete schema up front (contract
+  tests, generated clients), mount eagerly (<code>loader.load()</code> with no argument) or
+  pre-warm the routes you care about.</li>
+<li><strong>No <code>include_router</code>-level <code>prefix</code>.</strong> Routers are included as-is by the
+  loader; there is no <code>prefix=</code> applied at mount time. Bake any prefix into the
+  router itself (<code>APIRouter(prefix=...)</code>).</li>
+<li><strong>Stub match order.</strong> A stub and a real route can share a path; Starlette
+  resolves the ambiguity by match order. Avoid overlapping a lazy stub with an
+  already-mounted route on the same path and method.</li>
+<li><strong>Concurrency at first request.</strong> Mounting happens on the first matching
+  request. If several requests for the same not-yet-mounted route arrive
+  concurrently, they may each drive a mount; the loader is not designed for
+  concurrent first-touch mounting of the same router.</li>
+</ul>
 
 
 

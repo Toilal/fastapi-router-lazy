@@ -1279,8 +1279,9 @@ Notable members:</p>
 <h3 id="lazy_loading_router_header"><code>LAZY_LOADING_ROUTER_HEADER</code><a class="headerlink" href="#lazy_loading_router_header" title="Permanent link">&para;</a></h3>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">LAZY_LOADING_ROUTER_HEADER</span> <span class="o">=</span> <span class="s2">&quot;x-fastapi-router-lazy-loading-router&quot;</span>
 </span></code></pre></div>
-<p>The header (<code>module:variable</code>) the middleware adds to the request scope and
-echoes on the response when it lazily mounts a router.</p>
+<p>The header (<code>module:variable</code>) the middleware sets on the response when it
+lazily mounts a router, so you can observe which module was loaded. It is set on
+the response only, never injected into the request the handlers see.</p>
 <h2 id="route-infos">Route infos<a class="headerlink" href="#route-infos" title="Permanent link">&para;</a></h2>
 <h3 id="routetype"><code>RouteType</code><a class="headerlink" href="#routetype" title="Permanent link">&para;</a></h3>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">RouteType</span> <span class="o">=</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;http&quot;</span><span class="p">,</span> <span class="s2">&quot;websocket&quot;</span><span class="p">]</span>
