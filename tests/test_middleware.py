@@ -1,8 +1,6 @@
 import sys
-from collections.abc import Iterator
 from pathlib import Path
 
-import pytest
 from conftest import MakePackage
 from fastapi import FastAPI
 from starlette.testclient import TestClient
@@ -55,16 +53,9 @@ async def ws_endpoint(websocket: WebSocket) -> None:
 """
 
 
-@pytest.fixture(autouse=True)
-def _reset_stub_app() -> Iterator[None]:
-    LazyMiddleware.app_stub = FastAPI()
-    LazyMiddleware._on_all_stubs_consumed = None
-    yield
-    LazyMiddleware.app_stub = FastAPI()
-    LazyMiddleware._on_all_stubs_consumed = None
-
-
-def _build(make_package: MakePackage, modules: dict[str, str]) -> tuple[FastAPI, str]:
+def _build(
+    make_package: MakePackage, modules: dict[str, str]
+) -> tuple[FastAPI, str, type[LazyMiddleware]]:
     package = make_package(modules)
     app = FastAPI()
     extractor = PlainRouteInfosExtractor(ExtractorDefaults(), package)
@@ -72,24 +63,26 @@ def _build(make_package: MakePackage, modules: dict[str, str]) -> tuple[FastAPI,
     middleware = lazy_middleware_factory(loader)
     app.add_middleware(middleware)
     loader.load(middleware)
-    return app, package
+    return app, package, middleware
 
 
-def _stub_paths() -> set[str]:
+def _stub_paths(middleware: type[LazyMiddleware]) -> set[str]:
     return {
         r.path
-        for r in LazyMiddleware.app_stub.routes
+        for r in middleware.app_stub.routes
         if hasattr(r, "name") and ":" in (r.name or "")
     }
 
 
 def test_stub_registered_for_each_route(make_package: MakePackage) -> None:
-    _build(make_package, {"users.router": USERS_ROUTER, "items.router": ITEMS_ROUTER})
-    assert _stub_paths() == {"/users", "/items"}
+    _, _, middleware = _build(
+        make_package, {"users.router": USERS_ROUTER, "items.router": ITEMS_ROUTER}
+    )
+    assert _stub_paths(middleware) == {"/users", "/items"}
 
 
 def test_first_request_lazily_mounts_router(make_package: MakePackage) -> None:
-    app, _ = _build(make_package, {"users.router": USERS_ROUTER})
+    app, _, middleware = _build(make_package, {"users.router": USERS_ROUTER})
     client = TestClient(app)
 
     response = client.get("/users")
@@ -98,11 +91,11 @@ def test_first_request_lazily_mounts_router(make_package: MakePackage) -> None:
     assert response.json() == ["alice"]
     assert LAZY_LOADING_ROUTER_HEADER in response.headers
     # The stub was consumed once the router loaded.
-    assert "/users" not in _stub_paths()
+    assert "/users" not in _stub_paths(middleware)
 
 
 def test_second_request_still_served(make_package: MakePackage) -> None:
-    app, _ = _build(make_package, {"users.router": USERS_ROUTER})
+    app, _, _ = _build(make_package, {"users.router": USERS_ROUTER})
     client = TestClient(app)
 
     assert client.get("/users").status_code == 200
@@ -111,7 +104,7 @@ def test_second_request_still_served(make_package: MakePackage) -> None:
 
 
 def test_only_matching_stub_is_consumed(make_package: MakePackage) -> None:
-    app, _ = _build(
+    app, _, middleware = _build(
         make_package, {"users.router": USERS_ROUTER, "items.router": ITEMS_ROUTER}
     )
     client = TestClient(app)
@@ -119,29 +112,58 @@ def test_only_matching_stub_is_consumed(make_package: MakePackage) -> None:
     client.get("/users")
 
     # Only the matching router loaded; the other stub is untouched.
-    assert _stub_paths() == {"/items"}
+    assert _stub_paths(middleware) == {"/items"}
 
 
 def test_websocket_route_lazily_mounted(make_package: MakePackage) -> None:
-    app, _ = _build(make_package, {"live.router": WS_ROUTER})
-    assert "/ws" in _stub_paths()
+    app, _, middleware = _build(make_package, {"live.router": WS_ROUTER})
+    assert "/ws" in _stub_paths(middleware)
 
     client = TestClient(app)
     with client.websocket_connect("/ws") as ws:
         assert ws.receive_text() == "hi"
 
-    assert "/ws" not in _stub_paths()
+    assert "/ws" not in _stub_paths(middleware)
 
 
 def test_on_all_stubs_consumed_callback(make_package: MakePackage) -> None:
-    app, _ = _build(make_package, {"users.router": USERS_ROUTER})
+    app, _, middleware = _build(make_package, {"users.router": USERS_ROUTER})
     consumed: list[bool] = []
-    LazyMiddleware._on_all_stubs_consumed = lambda: consumed.append(True)
+    middleware._on_all_stubs_consumed = lambda: consumed.append(True)
 
     client = TestClient(app)
     client.get("/users")
 
     assert consumed == [True]
+
+
+def test_two_apps_have_independent_stub_tables(make_package: MakePackage) -> None:
+    app_a, _, mw_a = _build(make_package, {"users.router": USERS_ROUTER})
+    _, _, mw_b = _build(make_package, {"items.router": ITEMS_ROUTER})
+
+    assert mw_a.app_stub is not mw_b.app_stub
+    assert _stub_paths(mw_a) == {"/users"}
+    assert _stub_paths(mw_b) == {"/items"}
+
+    # Consuming a stub in app A leaves app B's table untouched.
+    TestClient(app_a).get("/users")
+
+    assert _stub_paths(mw_a) == set()
+    assert _stub_paths(mw_b) == {"/items"}
+
+
+def test_on_all_stubs_consumed_callback_is_scoped_per_app(
+    make_package: MakePackage,
+) -> None:
+    app_a, _, mw_a = _build(make_package, {"users.router": USERS_ROUTER})
+    _, _, mw_b = _build(make_package, {"items.router": ITEMS_ROUTER})
+    fired: list[str] = []
+    mw_a._on_all_stubs_consumed = lambda: fired.append("a")
+    mw_b._on_all_stubs_consumed = lambda: fired.append("b")
+
+    TestClient(app_a).get("/users")
+
+    assert fired == ["a"]
 
 
 def test_modules_imported_only_on_first_request_with_cache(
