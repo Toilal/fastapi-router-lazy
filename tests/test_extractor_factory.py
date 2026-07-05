@@ -28,7 +28,7 @@ def test_factory_defaults_to_plain(make_package: MakePackage) -> None:
 
 def test_factory_wraps_in_cache(make_package: MakePackage, tmp_path: Path) -> None:
     package = make_package({"users.router": USERS_ROUTER})
-    CachedRouteInfosExtractor._cache_file_cache.clear()
+    CachedRouteInfosExtractor.clear_file_cache()
 
     extractor = route_infos_extractor(
         package, cache=True, cache_file=tmp_path / "routes.json"
