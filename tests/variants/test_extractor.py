@@ -6,32 +6,9 @@ from conftest import MakePackage
 pytest.importorskip("fastapi_router_variants")
 
 from fastapi_router_variants import RouterWrapper
+from routers import HIDDEN_ROUTER, VARIANTS_ROUTER
 
 from fastapi_router_lazy.variants import RecordingRouteInfosExtractor
-
-VARIANTS_ROUTER = """
-from fastapi_router_variants import RouterWrapper
-
-router = RouterWrapper(version=False)
-
-
-@router.get("/users")
-def list_users() -> None: ...
-
-
-@router.get("/items", version=(1, 2))
-def list_items() -> None: ...
-"""
-
-HIDDEN_ROUTER = """
-from fastapi_router_variants import RouterWrapper
-
-router = RouterWrapper(version=False, hidden=True, deployment="metrics")
-
-
-@router.get("/metrics")
-def metrics() -> None: ...
-"""
 
 
 @pytest.fixture(autouse=True)

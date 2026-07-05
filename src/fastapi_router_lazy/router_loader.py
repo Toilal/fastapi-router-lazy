@@ -130,7 +130,10 @@ class RouterLoader:
     def _resolve_router(self, imported_router: object) -> APIRouter:
         if isinstance(imported_router, APIRouter):
             return imported_router
-        raise ValueError("Router must be an instance of APIRouter.")
+        raise ValueError(
+            "Router must be an instance of APIRouter, "
+            f"got {type(imported_router).__name__}."
+        )
 
     def load_routers(self, module_names: Iterable[str]) -> list[LoadedRouter]:
         loaded_routers: list[LoadedRouter] = []

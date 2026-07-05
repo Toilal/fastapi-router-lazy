@@ -8,36 +8,12 @@ from starlette.testclient import TestClient
 pytest.importorskip("fastapi_router_variants")
 
 from fastapi_router_variants import RouterWrapper
+from routers import PARENT_CHAIN_ROUTER, VARIANTS_ROUTER
 
 from fastapi_router_lazy.variants import (
     RecordingRouteInfosExtractor,
     VariantsRouterLoader,
 )
-
-VARIANTS_ROUTER = """
-from fastapi_router_variants import RouterWrapper
-
-router = RouterWrapper(version=False)
-
-
-@router.get("/users")
-def list_users() -> None: ...
-
-
-@router.get("/items", version=(1, 2))
-def list_items() -> None: ...
-"""
-
-PARENT_CHAIN_ROUTER = """
-from fastapi_router_variants import RouterWrapper
-
-parent = RouterWrapper(version=False)
-router = RouterWrapper(version=False, parent=parent)
-
-
-@router.get("/child")
-def child() -> None: ...
-"""
 
 
 @pytest.fixture(autouse=True)
