@@ -4,6 +4,7 @@ from pathlib import Path
 from conftest import MakePackage
 from fastapi import FastAPI
 from fastapi.routing import APIRoute
+from starlette.routing import Route, WebSocketRoute
 from starlette.testclient import TestClient
 
 from fastapi_router_lazy import (
@@ -83,7 +84,7 @@ def _stub_paths(middleware: type[LazyMiddleware]) -> set[str]:
     return {
         r.path
         for r in middleware.app_stub.routes
-        if hasattr(r, "name") and ":" in (r.name or "")
+        if isinstance(r, (Route, WebSocketRoute)) and ":" in (r.name or "")
     }
 
 
@@ -163,6 +164,7 @@ def test_methods_none_stub_matches_any_verb(make_package: MakePackage) -> None:
         for r in middleware.app_stub.routes
         if isinstance(r, APIRoute) and r.name == "m:router"
     )
+    assert stub.methods is not None
     assert {"GET", "POST", "PUT", "PATCH", "DELETE"} <= stub.methods
 
 
