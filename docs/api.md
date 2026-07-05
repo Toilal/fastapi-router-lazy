@@ -2,9 +2,9 @@ API reference
 =============
 
 Every symbol below is exported from the top-level `fastapi_router_lazy` package
-(`from fastapi_router_lazy import ...`), except `RecordingRouteInfosExtractor`,
-which lives in `fastapi_router_lazy.extractors.variants` and requires the
-`variants` extra.
+(`from fastapi_router_lazy import ...`), except `RecordingRouteInfosExtractor`
+and `VariantsRouterLoader`, which live in `fastapi_router_lazy.variants` and
+require the `variants` extra.
 
 Loader
 ------
@@ -20,8 +20,9 @@ RouterLoader(
 ```
 
 Mounts routers on demand, one module (and router variable) at a time. Works with
-plain `fastapi.APIRouter` objects; when the `variants` extra is installed,
-`RouterWrapper` objects are supported too, including their `parent` chains.
+plain `fastapi.APIRouter` objects. To mount `fastapi-router-variants`
+`RouterWrapper` objects (including their `parent` chains), use
+`VariantsRouterLoader` (`variants` extra) instead.
 
 Key methods:
 
@@ -263,7 +264,7 @@ Hash of a module's source file — the key a cache entry is stored under.
 ### `RecordingRouteInfosExtractor` (`variants` extra)
 
 ```python
-from fastapi_router_lazy.extractors.variants import RecordingRouteInfosExtractor
+from fastapi_router_lazy.variants import RecordingRouteInfosExtractor
 
 RecordingRouteInfosExtractor(
     router_wrapper_class: type[RouterWrapper],
@@ -278,6 +279,24 @@ Variant/version-aware extractor. Imports modules under
 `RouterWrapper.recording(...)` to enumerate every expanded variant with full
 metadata, without importing route handlers or building the routes. Requires the
 `variants` extra.
+
+### `VariantsRouterLoader` (`variants` extra)
+
+```python
+from fastapi_router_lazy.variants import VariantsRouterLoader
+
+VariantsRouterLoader(
+    extractor: AbstractRouteInfosExtractor,
+    app: FastAPI | None = None,
+    deployments: set[str] | None = None,
+)
+```
+
+A `RouterLoader` subclass that also mounts `fastapi-router-variants`
+`RouterWrapper` objects: it unwraps the wrapper to its underlying `APIRouter`
+(`.base`) and includes it through every `parent` wrapper before reaching the
+application. Use it in place of `RouterLoader` when your routers are
+`RouterWrapper` instances. Requires the `variants` extra.
 
 Supporting types
 ----------------
