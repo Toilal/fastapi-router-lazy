@@ -53,9 +53,26 @@ class DataclassEncoder(json.JSONEncoder):
         return super().default(o)
 
 
+def _tuple_field_names(cls: type) -> set[str]:
+    return {
+        field.name for field in dataclasses.fields(cls) if "tuple" in str(field.type)
+    }
+
+
+def _coerce_tuples(item: dict[str, Any], tuple_fields: set[str]) -> dict[str, Any]:
+    return {
+        key: tuple(value) if key in tuple_fields and isinstance(value, list) else value
+        for key, value in item.items()
+    }
+
+
 def dataclass_decoder(dct: dict[str, Any], cls: type) -> Any:
     if isinstance(dct, dict) and all(isinstance(v, list) for v in dct.values()):
-        return {k: [cls(**item) for item in v] for k, v in dct.items()}
+        tuple_fields = _tuple_field_names(cls)
+        return {
+            k: [cls(**_coerce_tuples(item, tuple_fields)) for item in v]
+            for k, v in dct.items()
+        }
     return dct
 
 
