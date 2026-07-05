@@ -1,11 +1,9 @@
 """Route-infos extractors.
 
-The core extractors (:mod:`~fastapi_router_lazy.extractors.plain`,
-:mod:`~fastapi_router_lazy.extractors.cached_extractor`,
-:mod:`~fastapi_router_lazy.extractors.sandbox`) need nothing but FastAPI. The
-variant-aware extractors live in
-:mod:`fastapi_router_lazy.extractors.variants` and must be imported explicitly
-(they require the optional ``variants`` extra).
+These extractors need nothing but FastAPI: they read a module's routes off
+plain ``fastapi.APIRouter`` objects (:mod:`~fastapi_router_lazy.extractors.plain`),
+from a persisted cache (:mod:`~fastapi_router_lazy.extractors.cached_extractor`),
+or from a sandbox subprocess (:mod:`~fastapi_router_lazy.extractors.sandbox`).
 """
 
 from fastapi_router_lazy.extractors.abc import (

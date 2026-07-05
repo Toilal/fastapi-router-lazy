@@ -31,10 +31,9 @@ def route_infos_extractor(
     """Build an extractor for ``package_name``.
 
     By default a :class:`PlainRouteInfosExtractor` (plain FastAPI, no extra
-    dependency) is used. Pass ``extractor=`` to plug a different one (e.g. a
-    variant-aware extractor). Set ``cache=True`` to wrap it in a checksum cache
-    persisted to ``cache_file`` (defaults to ``routes.json`` next to the
-    package).
+    dependency) is used. Pass ``extractor=`` to plug a different one. Set
+    ``cache=True`` to wrap it in a checksum cache persisted to ``cache_file``
+    (defaults to ``routes.json`` next to the package).
     """
     resolved_defaults: ExtractorDefaultsProtocol = defaults or ExtractorDefaults()
 

@@ -16,8 +16,7 @@ DEFAULT_ROUTER_MODULE_PATTERN = "router.py"
 class ExtractorDefaultsProtocol(Protocol):
     """Minimal defaults an extractor relies on.
 
-    ``fastapi_router_variants.RouterDefaults`` satisfies this structurally, so
-    the variant-aware extractors can pass their router defaults directly.
+    Any object exposing a ``deployment`` attribute satisfies it structurally.
     """
 
     deployment: str | None

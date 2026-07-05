@@ -3,8 +3,7 @@
 These carry just enough information to decide whether and where to mount a
 router lazily, without importing the router itself. ``version`` and ``prefix``
 are kept opaque (typed ``Any``) so the core stays independent of any particular
-versioning scheme; the variant-aware extractors populate them with the specs
-from ``fastapi-router-variants``.
+versioning scheme; extractors that carry versioning metadata populate them.
 """
 
 from __future__ import annotations
