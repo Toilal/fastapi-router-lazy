@@ -6,7 +6,7 @@ dynamic = ["readme"]
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Rémi Alvergnat", email = "toilal.dev@gmail.com" }]
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 keywords = ["fastapi", "routing", "lazy-loading", "startup", "asgi"]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -15,6 +15,7 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
@@ -31,7 +32,7 @@ dependencies = [
 # `pip install fastapi-router-lazy[variants]` unlocks the variant/version-aware
 # extractors (extraction without importing route handlers, versions x prefixes
 # x flavors metadata) built on top of fastapi-router-variants.
-variants = ["fastapi-router-variants>=0.1"]
+variants = ["fastapi-router-variants>=0.2"]
 
 [project.urls]
 Homepage = "https://github.com/Toilal/fastapi-router-lazy"
@@ -62,7 +63,7 @@ dev = [
     { include-group = "docs" },
     # The variant integration module is part of the codebase, so the dev/CI env
     # installs fastapi-router-variants to type-check and test it.
-    "fastapi-router-variants",
+    "fastapi-router-variants>=0.2",
     # Tooling driven by .pre-commit-config.yaml: the hooks run via `uv run`, so
     # these must be in the dev env / uv.lock.
     "pre-commit",
@@ -71,12 +72,6 @@ dev = [
     "tox",
     "tox-uv",
 ]
-
-[tool.uv.sources]
-# Dev/CI source until fastapi-router-variants is published to PyPI. Works both
-# locally and in isolated CI checkouts (no sibling working copy required).
-# Switch to the PyPI release once it is published.
-fastapi-router-variants = { git = "https://github.com/Toilal/fastapi-router-variants", branch = "develop" }
 
 [build-system]
 requires = ["hatchling"]
@@ -117,7 +112,7 @@ name = "cz_conventional_commits"
 
 [tool.ruff]
 line-length = 88
-target-version = "py312"
+target-version = "py311"
 
 [tool.ruff.lint]
 select = [
@@ -142,7 +137,7 @@ ignore = [
 ]
 
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.11"
 files = ["src", "tests"]
 strict = true
 ignore_missing_imports = true
