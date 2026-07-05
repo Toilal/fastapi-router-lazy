@@ -103,8 +103,9 @@ Notable members:
 LAZY_LOADING_ROUTER_HEADER = "x-fastapi-router-lazy-loading-router"
 ```
 
-The header (`module:variable`) the middleware adds to the request scope and
-echoes on the response when it lazily mounts a router.
+The header (`module:variable`) the middleware sets on the response when it
+lazily mounts a router, so you can observe which module was loaded. It is set on
+the response only, never injected into the request the handlers see.
 
 Route infos
 -----------
