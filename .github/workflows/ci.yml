@@ -31,7 +31,7 @@ jobs:
         run: uv sync --locked --no-dev --group test
 
       - name: Test
-        run: uv run --no-sync pytest --cov=fastapi_router_lazy
+        run: uv run --no-sync pytest --cov=fastapi_router_lazy --cov-report=xml
 
       - name: Codecov
         uses: codecov/codecov-action@v7
