@@ -24,6 +24,12 @@ logger = logging.getLogger(__name__)
 LAZY_LOADING_ROUTER_HEADER = "x-fastapi-router-lazy-loading-router"
 LAZY_LOADING_ROUTER_HEADER_BYTES = LAZY_LOADING_ROUTER_HEADER.encode("ascii")
 
+# A stub only needs to match so the real router gets mounted; the mounted routes
+# then decide the real method semantics (405 included). So methods=None ("any
+# method") registers the stub on every verb rather than falling back to
+# FastAPI's GET-only default, which would leave non-GET routes unmountable.
+_ANY_METHOD_STUB_VERBS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"]
+
 
 class LazyMiddleware(LazyRouteRegistry):
     app: ASGIApp
@@ -84,7 +90,7 @@ class LazyMiddleware(LazyRouteRegistry):
                     methods=(
                         list(route_info.methods)
                         if route_info.methods is not None
-                        else None
+                        else _ANY_METHOD_STUB_VERBS
                     ),
                     name=name,
                 )
@@ -113,11 +119,6 @@ def factory(router_loader: RouterLoader) -> type[LazyMiddleware]:
             if isinstance(stub_route, (APIRoute, APIWebSocketRoute)):
                 stub_route_name = stub_route.name
                 stub_route_name_bytes = stub_route_name.encode("ascii")
-
-                headers = scope.setdefault("headers", [])
-                headers.append(
-                    (LAZY_LOADING_ROUTER_HEADER_BYTES, stub_route_name_bytes)
-                )
 
                 module_name, router_variable = stub_route_name.split(":")
                 router_loader.load_router(module_name, router_variable)

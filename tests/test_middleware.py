@@ -3,11 +3,13 @@ from pathlib import Path
 
 from conftest import MakePackage
 from fastapi import FastAPI
+from fastapi.routing import APIRoute
 from starlette.testclient import TestClient
 
 from fastapi_router_lazy import (
     LAZY_LOADING_ROUTER_HEADER,
     CachedRouteInfosExtractor,
+    ExtractedRouteInfo,
     ExtractorDefaults,
     LazyMiddleware,
     PlainRouteInfosExtractor,
@@ -36,6 +38,17 @@ router = APIRouter()
 @router.get("/items")
 def list_items() -> list[str]:
     return ["book"]
+"""
+
+ECHO_ROUTER = """
+from fastapi import APIRouter, Request
+
+router = APIRouter()
+
+
+@router.get("/echo")
+def echo(request: Request) -> dict[str, bool]:
+    return {"seen": "x-fastapi-router-lazy-loading-router" in request.headers}
 """
 
 WS_ROUTER = """
@@ -113,6 +126,44 @@ def test_only_matching_stub_is_consumed(make_package: MakePackage) -> None:
 
     # Only the matching router loaded; the other stub is untouched.
     assert _stub_paths(middleware) == {"/items"}
+
+
+def test_internal_header_not_injected_into_request(make_package: MakePackage) -> None:
+    app, _, _ = _build(make_package, {"echo.router": ECHO_ROUTER})
+    client = TestClient(app)
+
+    response = client.get("/echo")
+
+    assert response.status_code == 200
+    # The handler must not see the internal header in its request.
+    assert response.json() == {"seen": False}
+    # The observability header on the response is unaffected.
+    assert LAZY_LOADING_ROUTER_HEADER in response.headers
+
+
+def test_methods_none_stub_matches_any_verb(make_package: MakePackage) -> None:
+    package = make_package({"users.router": USERS_ROUTER})
+    extractor = PlainRouteInfosExtractor(ExtractorDefaults(), package)
+    middleware = lazy_middleware_factory(RouterLoader(extractor, FastAPI()))
+
+    middleware.register_lazy_routes(
+        [
+            ExtractedRouteInfo(
+                path="/any",
+                methods=None,
+                type="http",
+                router_module="m",
+                router_variable="router",
+            )
+        ]
+    )
+
+    stub = next(
+        r
+        for r in middleware.app_stub.routes
+        if isinstance(r, APIRoute) and r.name == "m:router"
+    )
+    assert {"GET", "POST", "PUT", "PATCH", "DELETE"} <= stub.methods
 
 
 def test_websocket_route_lazily_mounted(make_package: MakePackage) -> None:
