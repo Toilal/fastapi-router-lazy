@@ -1,5 +1,11 @@
 # fastapi-router-lazy
 
+[![Latest Version](https://img.shields.io/pypi/v/fastapi-router-lazy.svg)](https://pypi.python.org/pypi/fastapi-router-lazy)
+[![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/Toilal/fastapi-router-lazy/blob/develop/LICENSE)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/Toilal/fastapi-router-lazy/ci.yml?branch=develop)](https://github.com/Toilal/fastapi-router-lazy/actions/workflows/ci.yml)
+[![Codecov](https://img.shields.io/codecov/c/github/Toilal/fastapi-router-lazy)](https://codecov.io/gh/Toilal/fastapi-router-lazy)
+[![semantic-release](https://img.shields.io/badge/%20%20%F0%9F%93%A6%F0%9F%9A%80-semantic--release-e10079.svg)](https://github.com/relekang/python-semantic-release)
+
 **Lazy, on-demand loading of [FastAPI](https://fastapi.tiangolo.com/) routers.**
 
 Large FastAPI applications pay for *every* router at startup: importing the
