@@ -2,9 +2,7 @@
 
 This needs nothing but FastAPI. It imports the target module (running its route
 handlers' import-time side effects), finds every ``APIRouter`` exposed as a
-module attribute, and reads the already-built routes. It also transparently
-supports objects exposing an ``APIRouter`` as a ``.base`` attribute (such as
-``fastapi_router_variants.RouterWrapper``) without importing that package.
+module attribute, and reads the already-built routes.
 """
 
 import importlib
@@ -27,15 +25,6 @@ from fastapi_router_lazy.route_info import ExtractedRouteInfo, RouteType
 logger = logging.getLogger(__name__)
 
 
-def _resolve_api_router(obj: object) -> APIRouter | None:
-    if isinstance(obj, APIRouter):
-        return obj
-    base = getattr(obj, "base", None)
-    if isinstance(base, APIRouter):
-        return base
-    return None
-
-
 def _route_type(route: object) -> RouteType | None:
     if isinstance(route, (APIWebSocketRoute, WebSocketRoute)):
         return "websocket"
@@ -51,9 +40,9 @@ def extract_routes_from_module(module_name: str) -> list[ExtractedRouteInfo]:
     route_infos: list[ExtractedRouteInfo] = []
 
     for variable, value in vars(module).items():
-        router = _resolve_api_router(value)
-        if router is None:
+        if not isinstance(value, APIRouter):
             continue
+        router = value
 
         for route in router.routes:
             route_type = _route_type(route)

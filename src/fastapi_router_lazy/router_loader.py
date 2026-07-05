@@ -3,7 +3,7 @@ import logging
 from abc import ABC, abstractmethod
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from typing import Any, overload
+from typing import overload
 
 from fastapi import APIRouter, FastAPI
 from starlette.routing import BaseRoute
@@ -12,19 +12,6 @@ from fastapi_router_lazy.extractors.abc import AbstractRouteInfosExtractor
 from fastapi_router_lazy.route_info import ExtractedRouteInfo
 
 logger = logging.getLogger(__name__)
-
-
-def _router_wrapper_cls() -> type[Any] | None:
-    """Return ``RouterWrapper`` if the optional ``variants`` extra is present.
-
-    Kept lazy so the core never imports ``fastapi_router_variants`` at module
-    load time.
-    """
-    try:
-        from fastapi_router_variants import RouterWrapper
-    except ImportError:
-        return None
-    return RouterWrapper
 
 
 @dataclass(frozen=True)
@@ -53,10 +40,7 @@ class LoadedRouter:
 class RouterLoader:
     """Mount routers on demand, one module (and router variable) at a time.
 
-    Works with plain ``fastapi.APIRouter`` objects. When the optional
-    ``variants`` extra is installed, ``RouterWrapper`` objects are supported
-    too, including their ``parent`` chains (the routes are included through
-    every parent wrapper before reaching the application).
+    Works with plain ``fastapi.APIRouter`` objects.
     """
 
     def __init__(
@@ -87,25 +71,9 @@ class RouterLoader:
         cls,
         app: FastAPI | APIRouter | None,
         router: APIRouter,
-        parent_router: Any | None = None,
     ) -> list[BaseRoute]:
         if app is None:
             app = APIRouter()
-
-        if parent_router is not None:
-            routes_count = len(parent_router.base.routes)
-            parent_router.include_router(router)
-            included_routes = parent_router.base.routes[routes_count:]
-
-            parent_routes = parent_router.base.routes
-            try:
-                # Include the parent router with the freshly added routes only.
-                parent_router.base.routes = list(included_routes)
-                return cls._include_router(
-                    app, parent_router.base, parent_router.parent
-                )
-            finally:
-                parent_router.base.routes = parent_routes
 
         routes_count = len(app.routes)
         app.include_router(router)
@@ -139,37 +107,33 @@ class RouterLoader:
             logger.warning(f"Module {module_name} not found.")
             return []
 
-        router_wrapper_cls = _router_wrapper_cls()
-
         routers: list[LoadedRouter] = []
 
         for router_variable in router_variables:
             imported_router = getattr(imported_module, router_variable)
-            parent_router: Any | None = None
-            router: APIRouter
-
-            if router_wrapper_cls is not None and isinstance(
-                imported_router, router_wrapper_cls
-            ):
-                parent_router = imported_router.parent
-                router = imported_router.base
-            elif isinstance(imported_router, APIRouter):
-                router = imported_router
-            else:
-                raise ValueError(
-                    "Router must be an instance of APIRouter "
-                    "(or RouterWrapper when the variants extra is installed)."
-                )
-
-            router._loader_meta = RouterLoaderMeta(  # type: ignore[attr-defined]
-                module_name, router_variable
+            routers.append(
+                self._load_one(imported_router, module_name, router_variable)
             )
 
-            routes = self._include_router(self.app, router, parent_router)
-
-            routers.append(LoadedRouter(router, routes))
-
         return routers
+
+    def _load_one(
+        self, imported_router: object, module_name: str, router_variable: str
+    ) -> LoadedRouter:
+        router = self._resolve_router(imported_router)
+        router._loader_meta = RouterLoaderMeta(  # type: ignore[attr-defined]
+            module_name, router_variable
+        )
+        routes = self._include_router(self.app, router)
+        return LoadedRouter(router, routes)
+
+    def _resolve_router(self, imported_router: object) -> APIRouter:
+        if isinstance(imported_router, APIRouter):
+            return imported_router
+        raise ValueError(
+            "Router must be an instance of APIRouter, "
+            f"got {type(imported_router).__name__}."
+        )
 
     def load_routers(self, module_names: Iterable[str]) -> list[LoadedRouter]:
         loaded_routers: list[LoadedRouter] = []

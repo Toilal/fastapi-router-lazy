@@ -136,9 +136,11 @@ globs such as `"routes.py"`, `"*_router.py"` or `"api/*.py"` all work.
 Working with `fastapi-router-variants`
 --------------------------------------
 
-`RouterLoader` also mounts `RouterWrapper` objects from
-[`fastapi-router-variants`](https://github.com/Toilal/fastapi-router-variants)
-when that extra is installed, including their `parent` chains: the routes are
-included through every parent wrapper before reaching the application. The core
-never imports `fastapi_router_variants` unless it actually encounters a wrapper,
-so plain-FastAPI projects pay nothing for the integration.
+`VariantsRouterLoader` (from `fastapi_router_lazy.variants`, `variants` extra)
+mounts `RouterWrapper` objects from
+[`fastapi-router-variants`](https://github.com/Toilal/fastapi-router-variants),
+including their `parent` chains: the routes are included through every parent
+wrapper before reaching the application. It is a drop-in `RouterLoader`
+subclass — use it in place of `RouterLoader` when your routers are wrappers. The
+core package never imports `fastapi_router_variants`, so plain-FastAPI projects
+pay nothing for the integration.

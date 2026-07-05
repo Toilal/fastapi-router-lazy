@@ -2,9 +2,7 @@
 
 Mount routers only when a request first matches one of their routes, keeping
 application startup fast. The core works with plain ``fastapi.APIRouter``
-objects and depends on nothing but FastAPI. Install the optional ``variants``
-extra (``pip install fastapi-router-lazy[variants]``) to unlock the
-variant/version-aware extractors built on ``fastapi-router-variants``.
+objects and depends on nothing but FastAPI.
 """
 
 from fastapi_router_lazy.extractor import route_infos_extractor

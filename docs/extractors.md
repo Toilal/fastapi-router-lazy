@@ -52,9 +52,7 @@ Available extractors
 
 `PlainRouteInfosExtractor` needs nothing but FastAPI. It imports the target
 module (running its handlers' import-time side effects), finds every `APIRouter`
-exposed as a module attribute — including objects that expose an `APIRouter` as
-a `.base` attribute, such as `RouterWrapper` — and reads their already-built
-routes.
+exposed as a module attribute, and reads their already-built routes.
 
 The module-level helper `extract_routes_from_module(module_name)` performs a
 single-module extraction without any surrounding extractor.
@@ -113,20 +111,24 @@ module under `RouterWrapper.recording(...)`, where the route decorators become
 no-ops that report each expanded variant with its full metadata (`version`,
 `prefix`, `deployment`, `hidden`).
 
-It lives in `fastapi_router_lazy.extractors.variants` and must be imported
-explicitly (importing it requires the `variants` extra):
+It lives in `fastapi_router_lazy.variants` and must be imported explicitly
+(importing it requires the `variants` extra). Pair it with `VariantsRouterLoader`
+from the same subpackage, which mounts `RouterWrapper` objects (including their
+`parent` chains):
 
 ```python
 from fastapi import FastAPI
 from fastapi_router_variants import RouterWrapper
 
-from fastapi_router_lazy import RouterLoader
-from fastapi_router_lazy.extractors.variants import RecordingRouteInfosExtractor
+from fastapi_router_lazy.variants import (
+    RecordingRouteInfosExtractor,
+    VariantsRouterLoader,
+)
 
 app = FastAPI()
 
 extractor = RecordingRouteInfosExtractor(RouterWrapper, "myapp")
-loader = RouterLoader(extractor, app)
+loader = VariantsRouterLoader(extractor, app)
 ```
 
 Writing your own extractor
