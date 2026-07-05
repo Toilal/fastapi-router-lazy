@@ -10,10 +10,15 @@
 
 Large FastAPI applications pay for *every* router at startup: importing the
 module, building each route's dependency graph and response model, generating
-its OpenAPI schema. `fastapi-router-lazy` defers that work. It mounts a tiny
-stub per route and only imports and mounts the real router the first time a
-request matches one of its paths. The first matching request pays the import
-cost once; unused routers are never imported.
+its OpenAPI schema. `fastapi-router-lazy` mounts a tiny *stub* per route and
+loads the real router only on the first request matching one of its paths.
+
+The full startup win — *unused router modules are never imported* — comes from
+generating the route metadata ahead of time and shipping it, so the app reads
+that cache at startup instead of importing every module. The default in-process
+extractor is the simplest wiring, but it imports each module at startup to read
+its routes: it mounts on demand without deferring the imports. The documentation
+covers which strategy defers imports.
 
 The core needs nothing but FastAPI and works with plain `fastapi.APIRouter`.
 
@@ -27,10 +32,26 @@ pip install "fastapi-router-lazy[variants]"
 
 ## Usage
 
-Given importable `router.py` modules that each expose an `APIRouter`, wire lazy
-loading on the application:
+Given importable `router.py` modules that each expose an `APIRouter`, lazy
+loading is two steps.
+
+**1. Generate the route metadata** (at build time — imports each module once and
+writes `routes.json`):
 
 ```python
+from pathlib import Path
+
+from fastapi_router_lazy import route_infos_extractor
+
+route_infos_extractor("myapp", cache=True, cache_file=Path("routes.json"))
+```
+
+**2. Run lazily** (at runtime — reads the metadata and imports no router module
+until its first matching request):
+
+```python
+from pathlib import Path
+
 from fastapi import FastAPI
 
 from fastapi_router_lazy import (
@@ -41,8 +62,10 @@ from fastapi_router_lazy import (
 
 app = FastAPI()
 
-# Default extractor: import each `router.py` and read its APIRouter routes.
-extractor = route_infos_extractor("myapp")
+# strict=True: use the prebuilt metadata, never re-import at startup.
+extractor = route_infos_extractor(
+    "myapp", cache=True, cache_file=Path("routes.json"), strict=True
+)
 loader = RouterLoader(extractor, app)
 
 middleware = lazy_middleware_factory(loader)
@@ -52,8 +75,10 @@ app.add_middleware(middleware)
 loader.load(middleware)
 ```
 
-Eager loading, deployment filtering, cached extraction, and the
-variant/version-aware extractor (`[variants]`) are covered in the
+The default extractor (`route_infos_extractor("myapp")`, no cache) is the
+simplest wiring, but it imports every module at startup to read its routes — it
+mounts on demand without deferring imports. Eager loading, deployment filtering,
+and the variant/version-aware extractor (`[variants]`) are covered in the
 documentation.
 
 ## Documentation
