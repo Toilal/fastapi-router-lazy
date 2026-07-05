@@ -6,6 +6,9 @@ jobs:
   ci:
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
 
     name: Python ${{ matrix.python-version }}
 
@@ -32,6 +35,8 @@ jobs:
 
       - name: Codecov
         uses: codecov/codecov-action@v7
+        with:
+          use_oidc: true
 
   variants:
     # The variant/version-aware extractors live behind the optional `variants`
