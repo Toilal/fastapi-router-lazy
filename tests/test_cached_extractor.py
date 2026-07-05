@@ -70,6 +70,53 @@ class TestWriteReadCacheFile:
         assert result.routes["app.items.router"][0].path == "/items"
         assert result.router_checksums["app.items.router"] == "abc123"
 
+    def test_roundtrip_preserves_methods_tuple(self, tmp_path: Path) -> None:
+        route_info = ExtractedRouteInfo(
+            path="/items",
+            methods=("GET", "POST"),
+            router_variable="router",
+            router_module="app.items.router",
+        )
+        data = CachedExtractedRouteInfos(
+            router_checksums={},
+            routes={"app.items.router": [route_info]},
+        )
+        cache_file = tmp_path / "routes.json"
+
+        CachedRouteInfosExtractor._cache_file_cache.clear()
+        CachedRouteInfosExtractor.write_cache_file(data, cache_file)
+        CachedRouteInfosExtractor._cache_file_cache.clear()
+        back = CachedRouteInfosExtractor.read_cache_file(cache_file).routes[
+            "app.items.router"
+        ][0]
+
+        assert isinstance(back.methods, tuple)
+        assert hash(back) == hash(route_info)
+        assert back == route_info
+
+    def test_roundtrip_preserves_methods_none(self, tmp_path: Path) -> None:
+        route_info = ExtractedRouteInfo(
+            path="/items",
+            methods=None,
+            router_variable="router",
+            router_module="app.items.router",
+        )
+        data = CachedExtractedRouteInfos(
+            router_checksums={},
+            routes={"app.items.router": [route_info]},
+        )
+        cache_file = tmp_path / "routes.json"
+
+        CachedRouteInfosExtractor._cache_file_cache.clear()
+        CachedRouteInfosExtractor.write_cache_file(data, cache_file)
+        CachedRouteInfosExtractor._cache_file_cache.clear()
+        back = CachedRouteInfosExtractor.read_cache_file(cache_file).routes[
+            "app.items.router"
+        ][0]
+
+        assert back.methods is None
+        assert back == route_info
+
     def test_read_missing_returns_empty(self, tmp_path: Path) -> None:
         CachedRouteInfosExtractor._cache_file_cache.clear()
         result = CachedRouteInfosExtractor.read_cache_file(tmp_path / "missing.json")
