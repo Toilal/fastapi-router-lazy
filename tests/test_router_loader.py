@@ -263,6 +263,21 @@ class TestRealLoading:
         )
         assert loaded == []
 
+    def test_missing_variable_warns_and_skips(
+        self, make_package: MakePackage, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        package = make_package({"users.router": USERS_ROUTER})
+        extractor = PlainRouteInfosExtractor(ExtractorDefaults(), package)
+
+        with caplog.at_level("WARNING"):
+            loaded = RouterLoader(extractor, FastAPI()).load_router(
+                f"{package}.users.router", variables="absent_router"
+            )
+
+        assert loaded == []
+        assert "absent_router" in caplog.text
+        assert f"{package}.users.router" in caplog.text
+
     def test_raises_on_non_router_variable(self, make_package: MakePackage) -> None:
         package = make_package(
             {"bad.router": "from fastapi import APIRouter\nnot_a_router = 42\n"}

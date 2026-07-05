@@ -119,7 +119,13 @@ class RouterLoader:
         routers: list[LoadedRouter] = []
 
         for router_variable in router_variables:
-            imported_router = getattr(imported_module, router_variable)
+            imported_router = getattr(imported_module, router_variable, None)
+            if imported_router is None:
+                logger.warning(
+                    f"Router variable {router_variable!r} not found "
+                    f"in module {module_name}."
+                )
+                continue
             routers.append(
                 self._load_one(imported_router, module_name, router_variable)
             )
