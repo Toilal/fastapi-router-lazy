@@ -10,10 +10,21 @@ pytest.importorskip("fastapi_router_variants")
 from fastapi_router_variants import RouterWrapper
 from routers import PARENT_CHAIN_ROUTER, VARIANTS_ROUTER
 
+from fastapi_router_lazy import ExtractorDefaults, PlainRouteInfosExtractor
 from fastapi_router_lazy.variants import (
     RecordingRouteInfosExtractor,
     VariantsRouterLoader,
 )
+
+PLAIN_ROUTER = """
+from fastapi import APIRouter
+
+router = APIRouter()
+
+
+@router.get("/plain")
+def plain() -> None: ...
+"""
 
 
 @pytest.fixture(autouse=True)
@@ -49,3 +60,15 @@ def test_load_router_with_parent_chain(make_package: MakePackage) -> None:
     client = TestClient(app)
     # The child router is included through its parent wrapper chain.
     assert client.get("/child").status_code < 400
+
+
+def test_mounts_plain_apirouter(make_package: MakePackage) -> None:
+    package = make_package({"plain.router": PLAIN_ROUTER})
+    extractor = PlainRouteInfosExtractor(ExtractorDefaults(), package)
+
+    app = FastAPI()
+    VariantsRouterLoader(extractor, app).load()
+
+    client = TestClient(app)
+    # A plain APIRouter (not a RouterWrapper) is delegated to the base loader.
+    assert client.get("/plain").status_code < 400
