@@ -150,6 +150,10 @@ ignore_missing_imports = true
 testpaths = ["tests"]
 pythonpath = ["tests"]
 asyncio_mode = "auto"
+markers = [
+    "benchmark: wall-clock startup benchmark; run with -m benchmark, skip with -m 'not benchmark'",
+    "timing_sensitive: wall-clock-dependent; quarantine with -m 'not timing_sensitive' if it flakes",
+]
 
 [tool.coverage.report]
 exclude_lines = ["pragma: no cover"]
