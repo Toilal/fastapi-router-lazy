@@ -56,15 +56,24 @@ class RouterLoader:
     def filter_with_deployments(
         self, route_infos: list[ExtractedRouteInfo]
     ) -> list[ExtractedRouteInfo]:
-        if self.deployments is None:
+        deployments = self.deployments
+        if deployments is None:
             return route_infos
         return [
             route_info
             for route_info in route_infos
-            if route_info.deployment is True
-            or (route_info.deployment or self.extractor.defaults.deployment)
-            in self.deployments
+            if self._matches_deployment(route_info, deployments)
         ]
+
+    def _matches_deployment(
+        self, route_info: ExtractedRouteInfo, deployments: set[str]
+    ) -> bool:
+        deployment = route_info.deployment
+        if deployment is False:
+            return False
+        if deployment is True:
+            return True
+        return (deployment or self.extractor.defaults.deployment) in deployments
 
     @classmethod
     def _include_router(

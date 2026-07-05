@@ -144,6 +144,55 @@ class TestLoadRouterDeploymentFiltering:
         mock_import.assert_called_once()
         assert len(result) == 1
 
+    @patch("fastapi_router_lazy.router_loader.importlib.import_module")
+    def test_deployment_false_is_always_excluded(
+        self, mock_import: MagicMock, mock_extractor: MagicMock
+    ) -> None:
+        mock_extractor.defaults = ExtractorDefaults(deployment="api")
+        mock_extractor.extract_module_route_infos.return_value = [
+            ExtractedRouteInfo(
+                path="/disabled",
+                router_variable="router",
+                router_module="app.disabled.router",
+                deployment=False,
+            ),
+        ]
+
+        loader = RouterLoader(mock_extractor, deployments={"api"})
+        result = loader.load_router("app.disabled.router")
+
+        assert result == []
+        mock_import.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("deployment", "expected"),
+        [
+            (False, False),
+            (True, True),
+            (None, True),
+            ("api", True),
+            ("other", False),
+        ],
+    )
+    def test_deployment_filter_matrix(
+        self,
+        mock_extractor: MagicMock,
+        deployment: str | bool | None,
+        expected: bool,
+    ) -> None:
+        mock_extractor.defaults = ExtractorDefaults(deployment="api")
+        info = ExtractedRouteInfo(
+            path="/x",
+            router_variable="router",
+            router_module="app.x.router",
+            deployment=deployment,
+        )
+
+        loader = RouterLoader(mock_extractor, deployments={"api"})
+        result = loader.filter_with_deployments([info])
+
+        assert (result == [info]) is expected
+
 
 class TestRealLoading:
     def test_load_mounts_routers_on_app(self, make_package: MakePackage) -> None:
