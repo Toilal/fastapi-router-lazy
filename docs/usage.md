@@ -59,9 +59,9 @@ On each incoming HTTP or websocket request, the middleware:
    `x-fastapi-router-lazy-loading-router` header on the response so you can
    observe which module was loaded.
 
-The stub routes are held on a class-level `FastAPI` app (`LazyMiddleware.app_stub`),
-shared by the middleware class. Requests that are neither HTTP nor websocket
-pass straight through.
+Each middleware built by `lazy_middleware_factory` gets its own `FastAPI` stub
+app (`app_stub`), so separate applications keep independent stub tables.
+Requests that are neither HTTP nor websocket pass straight through.
 
 Eager loading
 -------------
