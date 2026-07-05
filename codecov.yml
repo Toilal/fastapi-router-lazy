@@ -1,0 +1,29 @@
+# Coverage is uploaded from two jobs (see .github/workflows/ci.yml):
+#   - `core`     — core-only test run (the variant tests are skipped)
+#   - `variants` — full run with the `variants` extra installed
+# Codecov merges both into a single report per commit; wait for both uploads
+# before computing the status so the variant subpackage counts as covered.
+codecov:
+  notify:
+    after_n_builds: 2
+    wait_for_ci: true
+
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 1%
+    patch:
+      default:
+        target: 90%
+        threshold: 5%
+
+flags:
+  core:
+    carryforward: true
+  variants:
+    carryforward: true
+
+comment:
+  after_n_builds: 2

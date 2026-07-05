@@ -34,9 +34,13 @@ jobs:
         run: uv run --no-sync pytest --cov=fastapi_router_lazy --cov-report=xml
 
       - name: Codecov
+        # Core-only coverage; a single matrix leg uploads (the report is
+        # identical across versions). Combined with the variants job's upload.
+        if: matrix.python-version == '3.14'
         uses: codecov/codecov-action@v7
         with:
           use_oidc: true
+          flags: core
 
   variants:
     # The variant/version-aware extractors live behind the optional `variants`
@@ -47,6 +51,10 @@ jobs:
     runs-on: ubuntu-latest
 
     name: Variants integration
+
+    permissions:
+      contents: read
+      id-token: write   # OIDC token for Codecov upload
 
     steps:
       - uses: actions/checkout@v7
@@ -60,7 +68,14 @@ jobs:
         run: uv sync
 
       - name: Test
-        run: uv run --no-sync pytest
+        run: uv run --no-sync pytest --cov=fastapi_router_lazy --cov-report=xml
+
+      - name: Codecov
+        # Covers the variant-aware subpackage, which is skipped in the core job.
+        uses: codecov/codecov-action@v7
+        with:
+          use_oidc: true
+          flags: variants
 
   fastapi-compat:
     # Core lazy loading only needs plain FastAPI routing/middleware. Validate
