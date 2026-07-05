@@ -198,11 +198,11 @@ def test_modules_imported_only_on_first_request_with_cache(
     """With a valid cache, no router module is imported until it is requested."""
     package = make_package({"users.router": USERS_ROUTER, "items.router": ITEMS_ROUTER})
     cache_file = tmp_path / "routes.json"
-    CachedRouteInfosExtractor._cache_file_cache.clear()
+    CachedRouteInfosExtractor.clear_file_cache()
 
     # Build the cache (this imports the modules), then simulate a fresh process.
     route_infos_extractor(package, cache=True, cache_file=cache_file)
-    CachedRouteInfosExtractor._cache_file_cache.clear()
+    CachedRouteInfosExtractor.clear_file_cache()
     for name in list(sys.modules):
         if name == package or name.startswith(f"{package}."):
             del sys.modules[name]

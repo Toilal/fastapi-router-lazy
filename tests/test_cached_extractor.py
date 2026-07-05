@@ -14,6 +14,7 @@ from fastapi_router_lazy import (
     module_checksum,
 )
 from fastapi_router_lazy.extractors.abc import AbstractRouteInfosExtractor
+from fastapi_router_lazy.extractors.cached_extractor import DataclassEncoder
 
 REAL_MODULE = "fastapi_router_lazy.route_info"
 OTHER_MODULE = "fastapi_router_lazy.router_loader"
@@ -61,9 +62,9 @@ class TestWriteReadCacheFile:
         )
         cache_file = tmp_path / "routes.json"
 
-        CachedRouteInfosExtractor._cache_file_cache.clear()
+        CachedRouteInfosExtractor.clear_file_cache()
         CachedRouteInfosExtractor.write_cache_file(data, cache_file)
-        CachedRouteInfosExtractor._cache_file_cache.clear()
+        CachedRouteInfosExtractor.clear_file_cache()
 
         result = CachedRouteInfosExtractor.read_cache_file(cache_file)
 
@@ -83,9 +84,9 @@ class TestWriteReadCacheFile:
         )
         cache_file = tmp_path / "routes.json"
 
-        CachedRouteInfosExtractor._cache_file_cache.clear()
+        CachedRouteInfosExtractor.clear_file_cache()
         CachedRouteInfosExtractor.write_cache_file(data, cache_file)
-        CachedRouteInfosExtractor._cache_file_cache.clear()
+        CachedRouteInfosExtractor.clear_file_cache()
         back = CachedRouteInfosExtractor.read_cache_file(cache_file).routes[
             "app.items.router"
         ][0]
@@ -107,9 +108,9 @@ class TestWriteReadCacheFile:
         )
         cache_file = tmp_path / "routes.json"
 
-        CachedRouteInfosExtractor._cache_file_cache.clear()
+        CachedRouteInfosExtractor.clear_file_cache()
         CachedRouteInfosExtractor.write_cache_file(data, cache_file)
-        CachedRouteInfosExtractor._cache_file_cache.clear()
+        CachedRouteInfosExtractor.clear_file_cache()
         back = CachedRouteInfosExtractor.read_cache_file(cache_file).routes[
             "app.items.router"
         ][0]
@@ -118,10 +119,39 @@ class TestWriteReadCacheFile:
         assert back == route_info
 
     def test_read_missing_returns_empty(self, tmp_path: Path) -> None:
-        CachedRouteInfosExtractor._cache_file_cache.clear()
+        CachedRouteInfosExtractor.clear_file_cache()
         result = CachedRouteInfosExtractor.read_cache_file(tmp_path / "missing.json")
         assert result.routes == {}
         assert result.router_checksums == {}
+
+    def test_read_reflects_external_file_change(self, tmp_path: Path) -> None:
+        """A file changed on disk self-invalidates the in-memory memo."""
+        cache_file = tmp_path / "routes.json"
+        CachedRouteInfosExtractor.clear_file_cache()
+
+        first = CachedExtractedRouteInfos(
+            router_checksums={}, routes={"app.a.router": []}
+        )
+        CachedRouteInfosExtractor.write_cache_file(first, cache_file)
+        # Populate the memo.
+        assert set(CachedRouteInfosExtractor.read_cache_file(cache_file).routes) == {
+            "app.a.router"
+        }
+
+        # Another process rewrites the file (bypassing the memo).
+        route = ExtractedRouteInfo(
+            path="/b", router_variable="router", router_module="app.b.router"
+        )
+        second = CachedExtractedRouteInfos(
+            router_checksums={"app.b.router": "deadbeef"},
+            routes={"app.b.router": [route]},
+        )
+        with open(cache_file, "w") as fp:
+            json.dump(second, fp, cls=DataclassEncoder, indent=2)
+
+        reread = CachedRouteInfosExtractor.read_cache_file(cache_file)
+        assert set(reread.routes) == {"app.b.router"}
+        assert reread.routes["app.b.router"][0].path == "/b"
 
     def test_write_produces_valid_json(self, tmp_path: Path) -> None:
         data = CachedExtractedRouteInfos(
@@ -135,7 +165,7 @@ class TestWriteReadCacheFile:
             },
         )
         cache_file = tmp_path / "routes.json"
-        CachedRouteInfosExtractor._cache_file_cache.clear()
+        CachedRouteInfosExtractor.clear_file_cache()
         CachedRouteInfosExtractor.write_cache_file(data, cache_file)
 
         parsed = json.loads(cache_file.read_text())
@@ -277,7 +307,7 @@ class TestCachedExtractorIntegration:
         package = make_package({"users.router": USERS_ROUTER})
         inner = PlainRouteInfosExtractor(ExtractorDefaults(), package)
         cache_file = tmp_path / "routes.json"
-        CachedRouteInfosExtractor._cache_file_cache.clear()
+        CachedRouteInfosExtractor.clear_file_cache()
 
         data = CachedRouteInfosExtractor.write_cache_file_from_extractor(
             inner, cache_file
@@ -287,7 +317,7 @@ class TestCachedExtractorIntegration:
         for module_name, checksum in data.router_checksums.items():
             assert checksum == module_checksum(module_name)
 
-        CachedRouteInfosExtractor._cache_file_cache.clear()
+        CachedRouteInfosExtractor.clear_file_cache()
         read_data = CachedRouteInfosExtractor.read_cache_file(cache_file)
         assert set(read_data.routes) == set(data.routes)
 
@@ -296,7 +326,7 @@ class TestCachedExtractorIntegration:
     ) -> None:
         package = make_package({"users.router": USERS_ROUTER})
         cache_file = tmp_path / "routes.json"
-        CachedRouteInfosExtractor._cache_file_cache.clear()
+        CachedRouteInfosExtractor.clear_file_cache()
 
         inner = PlainRouteInfosExtractor(ExtractorDefaults(), package)
         cached = CachedRouteInfosExtractor(

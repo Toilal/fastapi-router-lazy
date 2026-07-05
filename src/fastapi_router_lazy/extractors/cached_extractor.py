@@ -11,6 +11,7 @@ import dataclasses
 import hashlib
 import json
 import logging
+import os
 from collections.abc import Iterator
 from importlib.util import find_spec
 from pathlib import Path
@@ -77,7 +78,12 @@ def dataclass_decoder(dct: dict[str, Any], cls: type) -> Any:
 
 
 class CachedRouteInfosExtractor(AbstractRouteInfosExtractor):
-    _cache_file_cache: ClassVar[dict[str, CachedExtractedRouteInfos]] = {}
+    # Process-global memo of parsed cache files, keyed by path. Each entry
+    # carries the (mtime_ns, size) the file had when read, so a file changed on
+    # disk self-invalidates instead of serving a stale in-memory copy.
+    _cache_file_cache: ClassVar[
+        dict[str, tuple[int, int, CachedExtractedRouteInfos]]
+    ] = {}
 
     def __init__(
         self,
@@ -207,24 +213,38 @@ class CachedRouteInfosExtractor(AbstractRouteInfosExtractor):
         return data
 
     @classmethod
+    def clear_file_cache(cls) -> None:
+        """Drop the process-global in-memory memo of parsed cache files."""
+        cls._cache_file_cache.clear()
+
+    @classmethod
     def write_cache_file(
         cls, data: CachedExtractedRouteInfos, cache_file: Path
     ) -> None:
-        cls._cache_file_cache[str(cache_file)] = data
         with open(cache_file, "w") as fp:
             json.dump(data, fp, cls=DataclassEncoder, indent=2)
+        stat = os.stat(cache_file)
+        cls._cache_file_cache[str(cache_file)] = (stat.st_mtime_ns, stat.st_size, data)
 
     @classmethod
     def read_cache_file(cls, cache_file: Path) -> CachedExtractedRouteInfos:
-        cached_file = cls._cache_file_cache.get(str(cache_file))
-        if cached_file is not None:
-            return cached_file
-
         try:
-            with open(cache_file) as fp:
-                data = json.load(
-                    fp, object_hook=lambda d: dataclass_decoder(d, ExtractedRouteInfo)
-                )
-                return CachedExtractedRouteInfos(**data)
+            stat = os.stat(cache_file)
         except FileNotFoundError:
             return CachedExtractedRouteInfos({}, {})
+
+        memo = cls._cache_file_cache.get(str(cache_file))
+        if memo is not None and memo[0] == stat.st_mtime_ns and memo[1] == stat.st_size:
+            return memo[2]
+
+        with open(cache_file) as fp:
+            data = json.load(
+                fp, object_hook=lambda d: dataclass_decoder(d, ExtractedRouteInfo)
+            )
+        parsed = CachedExtractedRouteInfos(**data)
+        cls._cache_file_cache[str(cache_file)] = (
+            stat.st_mtime_ns,
+            stat.st_size,
+            parsed,
+        )
+        return parsed
