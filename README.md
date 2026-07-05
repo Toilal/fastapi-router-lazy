@@ -32,8 +32,20 @@ pip install "fastapi-router-lazy[variants]"
 
 ## Usage
 
-Given importable `router.py` modules that each expose an `APIRouter`, lazy
-loading is two steps.
+The examples below use `"myapp"` as the name of **your** importable Python
+package — the one the extractor walks to find modules named `router.py`, each
+exposing an `APIRouter`:
+
+```text
+myapp/                  # <- the package name you pass to route_infos_extractor
+├── __init__.py
+├── users/
+│   └── router.py       # exposes `router = APIRouter()`
+└── items/
+    └── router.py
+```
+
+Given that layout, lazy loading is two steps.
 
 **1. Generate the route metadata** (at build time — imports each module once and
 writes `routes.json`):

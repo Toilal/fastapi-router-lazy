@@ -67,8 +67,19 @@ imported, and the first matching request pays the import cost once.
 Quick start
 -----------
 
-Given a project laid out as importable `router.py` modules, each exposing an
-`APIRouter`:
+Throughout, `"myapp"` is **your** importable Python package — the one the
+extractor walks to find modules named `router.py`. Given a package laid out like
+
+```text
+myapp/                  # <- the package name you pass to route_infos_extractor
+├── __init__.py
+├── users/
+│   └── router.py       # exposes `router = APIRouter()`
+└── items/
+    └── router.py
+```
+
+where each `router.py` exposes an `APIRouter`:
 
 ```python
 # myapp/users/router.py
