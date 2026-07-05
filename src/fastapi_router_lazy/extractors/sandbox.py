@@ -11,6 +11,7 @@ import os
 import pickle
 import subprocess
 import sys
+import tempfile
 from typing import cast
 
 from fastapi_router_lazy.extractors.abc import (
@@ -40,19 +41,30 @@ def extract_routes_sandboxed(
         entries.append(existing)
     env["PYTHONPATH"] = os.pathsep.join(entries)
 
-    process = subprocess.run(
-        [python_executable, "-m", __name__, *modules],
-        capture_output=True,
-        env=env,
-    )
-
-    if process.returncode != 0:
-        raise RuntimeError(
-            f"Sandbox process exited with code {process.returncode}\n"
-            f"{process.stderr.decode()}"
+    # Pass the pickle over a dedicated file rather than the child's stdout: any
+    # import-time `print(...)` (or C-level fd 1 write) in a target module would
+    # otherwise interleave with the pickle bytes and corrupt the stream.
+    fd, result_path = tempfile.mkstemp(prefix="fastapi-router-lazy-", suffix=".pickle")
+    os.close(fd)
+    try:
+        process = subprocess.run(
+            [python_executable, "-m", __name__, result_path, *modules],
+            capture_output=True,
+            env=env,
         )
 
-    return cast("list[ExtractedRouteInfo]", pickle.loads(process.stdout))
+        if process.returncode != 0:
+            raise RuntimeError(
+                f"Sandbox process exited with code {process.returncode}\n"
+                f"{process.stderr.decode()}"
+            )
+
+        with open(result_path, "rb") as fp:
+            payload = fp.read()
+    finally:
+        os.unlink(result_path)
+
+    return cast("list[ExtractedRouteInfo]", pickle.loads(payload))
 
 
 class SandboxRouteInfosExtractor(AbstractRouteInfosExtractor, InitializableExtractor):
@@ -86,6 +98,11 @@ class SandboxRouteInfosExtractor(AbstractRouteInfosExtractor, InitializableExtra
             for module_name in self.scan_router_modules()
             if module_name not in self.modules
         ]
+        # Seed every scanned module, including route-less ones, so a later
+        # extract_module_route_infos never respawns a subprocess just to
+        # rediscover that the module has no routes (mirrors Plain.init).
+        for module_name in to_extract:
+            self.modules.setdefault(module_name, [])
         for route_info in extract_routes_sandboxed(to_extract, self.python_executable):
             self.modules.setdefault(route_info.router_module, []).append(route_info)
 
@@ -107,8 +124,10 @@ class SandboxRouteInfosExtractor(AbstractRouteInfosExtractor, InitializableExtra
 
 
 if __name__ == "__main__":
-    _modules = sys.argv[1:]
+    _result_path = sys.argv[1]
+    _modules = sys.argv[2:]
     _result: list[ExtractedRouteInfo] = []
     for _module in _modules:
         _result.extend(extract_routes_from_module(_module))
-    sys.stdout.buffer.write(pickle.dumps(_result))
+    with open(_result_path, "wb") as _fp:
+        pickle.dump(_result, _fp)
