@@ -657,6 +657,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#variantsrouterloader-variants-extra" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>VariantsRouterLoader</code> (<code>variants</code> extra)
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1065,6 +1076,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#variantsrouterloader-variants-extra" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>VariantsRouterLoader</code> (<code>variants</code> extra)
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1183,9 +1205,9 @@
 
 <h1 id="api-reference">API reference<a class="headerlink" href="#api-reference" title="Permanent link">&para;</a></h1>
 <p>Every symbol below is exported from the top-level <code>fastapi_router_lazy</code> package
-(<code>from fastapi_router_lazy import ...</code>), except <code>RecordingRouteInfosExtractor</code>,
-which lives in <code>fastapi_router_lazy.extractors.variants</code> and requires the
-<code>variants</code> extra.</p>
+(<code>from fastapi_router_lazy import ...</code>), except <code>RecordingRouteInfosExtractor</code>
+and <code>VariantsRouterLoader</code>, which live in <code>fastapi_router_lazy.variants</code> and
+require the <code>variants</code> extra.</p>
 <h2 id="loader">Loader<a class="headerlink" href="#loader" title="Permanent link">&para;</a></h2>
 <h3 id="routerloader"><code>RouterLoader</code><a class="headerlink" href="#routerloader" title="Permanent link">&para;</a></h3>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">RouterLoader</span><span class="p">(</span>
@@ -1195,8 +1217,9 @@ which lives in <code>fastapi_router_lazy.extractors.variants</code> and requires
 </span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="p">)</span>
 </span></code></pre></div>
 <p>Mounts routers on demand, one module (and router variable) at a time. Works with
-plain <code>fastapi.APIRouter</code> objects; when the <code>variants</code> extra is installed,
-<code>RouterWrapper</code> objects are supported too, including their <code>parent</code> chains.</p>
+plain <code>fastapi.APIRouter</code> objects. To mount <code>fastapi-router-variants</code>
+<code>RouterWrapper</code> objects (including their <code>parent</code> chains), use
+<code>VariantsRouterLoader</code> (<code>variants</code> extra) instead.</p>
 <p>Key methods:</p>
 <ul>
 <li><code>load(lazy_registry=None)</code> — with no argument, scan every router module and
@@ -1365,7 +1388,7 @@ instead of re-extracting.</p>
 </span></code></pre></div>
 <p>Hash of a module's source file — the key a cache entry is stored under.</p>
 <h3 id="recordingrouteinfosextractor-variants-extra"><code>RecordingRouteInfosExtractor</code> (<code>variants</code> extra)<a class="headerlink" href="#recordingrouteinfosextractor-variants-extra" title="Permanent link">&para;</a></h3>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">fastapi_router_lazy.extractors.variants</span><span class="w"> </span><span class="kn">import</span> <span class="n">RecordingRouteInfosExtractor</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">fastapi_router_lazy.variants</span><span class="w"> </span><span class="kn">import</span> <span class="n">RecordingRouteInfosExtractor</span>
 </span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>
 </span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="n">RecordingRouteInfosExtractor</span><span class="p">(</span>
 </span><span id="__span-16-4"><a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a>    <span class="n">router_wrapper_class</span><span class="p">:</span> <span class="nb">type</span><span class="p">[</span><span class="n">RouterWrapper</span><span class="p">],</span>
@@ -1379,25 +1402,39 @@ instead of re-extracting.</p>
 <code>RouterWrapper.recording(...)</code> to enumerate every expanded variant with full
 metadata, without importing route handlers or building the routes. Requires the
 <code>variants</code> extra.</p>
+<h3 id="variantsrouterloader-variants-extra"><code>VariantsRouterLoader</code> (<code>variants</code> extra)<a class="headerlink" href="#variantsrouterloader-variants-extra" title="Permanent link">&para;</a></h3>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">fastapi_router_lazy.variants</span><span class="w"> </span><span class="kn">import</span> <span class="n">VariantsRouterLoader</span>
+</span><span id="__span-17-2"><a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a>
+</span><span id="__span-17-3"><a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a><span class="n">VariantsRouterLoader</span><span class="p">(</span>
+</span><span id="__span-17-4"><a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a>    <span class="n">extractor</span><span class="p">:</span> <span class="n">AbstractRouteInfosExtractor</span><span class="p">,</span>
+</span><span id="__span-17-5"><a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a>    <span class="n">app</span><span class="p">:</span> <span class="n">FastAPI</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-17-6"><a id="__codelineno-17-6" name="__codelineno-17-6" href="#__codelineno-17-6"></a>    <span class="n">deployments</span><span class="p">:</span> <span class="nb">set</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-17-7"><a id="__codelineno-17-7" name="__codelineno-17-7" href="#__codelineno-17-7"></a><span class="p">)</span>
+</span></code></pre></div>
+<p>A <code>RouterLoader</code> subclass that also mounts <code>fastapi-router-variants</code>
+<code>RouterWrapper</code> objects: it unwraps the wrapper to its underlying <code>APIRouter</code>
+(<code>.base</code>) and includes it through every <code>parent</code> wrapper before reaching the
+application. Use it in place of <code>RouterLoader</code> when your routers are
+<code>RouterWrapper</code> instances. Requires the <code>variants</code> extra.</p>
 <h2 id="supporting-types">Supporting types<a class="headerlink" href="#supporting-types" title="Permanent link">&para;</a></h2>
 <h3 id="extractordefaultsprotocol"><code>ExtractorDefaultsProtocol</code><a class="headerlink" href="#extractordefaultsprotocol" title="Permanent link">&para;</a></h3>
 <p>Structural protocol for the defaults an extractor relies on — currently a single
 <code>deployment: str | None</code> attribute. <code>fastapi_router_variants.RouterDefaults</code>
 satisfies it structurally.</p>
 <h3 id="extractordefaults"><code>ExtractorDefaults</code><a class="headerlink" href="#extractordefaults" title="Permanent link">&para;</a></h3>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="nd">@dataclass</span>
-</span><span id="__span-17-2"><a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="k">class</span><span class="w"> </span><span class="nc">ExtractorDefaults</span><span class="p">:</span>
-</span><span id="__span-17-3"><a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a>    <span class="n">deployment</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="nd">@dataclass</span>
+</span><span id="__span-18-2"><a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="k">class</span><span class="w"> </span><span class="nc">ExtractorDefaults</span><span class="p">:</span>
+</span><span id="__span-18-3"><a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a>    <span class="n">deployment</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 </span></code></pre></div>
 <p>Concrete default <code>ExtractorDefaultsProtocol</code> implementation.</p>
 <h3 id="initializableextractor"><code>InitializableExtractor</code><a class="headerlink" href="#initializableextractor" title="Permanent link">&para;</a></h3>
 <p>Mixin for extractors that keep invalidatable in-memory state: <code>init()</code> extracts
 every scanned module up front, <code>reset(module_names=None)</code> drops cached state.</p>
 <h3 id="cachedextractedrouteinfos"><code>CachedExtractedRouteInfos</code><a class="headerlink" href="#cachedextractedrouteinfos" title="Permanent link">&para;</a></h3>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="nd">@dataclass</span>
-</span><span id="__span-18-2"><a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="k">class</span><span class="w"> </span><span class="nc">CachedExtractedRouteInfos</span><span class="p">:</span>
-</span><span id="__span-18-3"><a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a>    <span class="n">router_checksums</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span>
-</span><span id="__span-18-4"><a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a>    <span class="n">routes</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="n">ExtractedRouteInfo</span><span class="p">]]</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="nd">@dataclass</span>
+</span><span id="__span-19-2"><a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a><span class="k">class</span><span class="w"> </span><span class="nc">CachedExtractedRouteInfos</span><span class="p">:</span>
+</span><span id="__span-19-3"><a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a>    <span class="n">router_checksums</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span>
+</span><span id="__span-19-4"><a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a>    <span class="n">routes</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="n">ExtractedRouteInfo</span><span class="p">]]</span>
 </span></code></pre></div>
 <p>The on-disk cache payload: per-module source checksums and the extracted routes.</p>
 <h3 id="__version__"><code>__version__</code><a class="headerlink" href="#__version__" title="Permanent link">&para;</a></h3>

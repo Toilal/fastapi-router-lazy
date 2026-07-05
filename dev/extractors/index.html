@@ -695,9 +695,7 @@ variant-aware one), or <code>defaults=</code> to supply custom <code>ExtractorDe
 <h3 id="plain-default">Plain (default)<a class="headerlink" href="#plain-default" title="Permanent link">&para;</a></h3>
 <p><code>PlainRouteInfosExtractor</code> needs nothing but FastAPI. It imports the target
 module (running its handlers' import-time side effects), finds every <code>APIRouter</code>
-exposed as a module attribute — including objects that expose an <code>APIRouter</code> as
-a <code>.base</code> attribute, such as <code>RouterWrapper</code> — and reads their already-built
-routes.</p>
+exposed as a module attribute, and reads their already-built routes.</p>
 <p>The module-level helper <code>extract_routes_from_module(module_name)</code> performs a
 single-module extraction without any surrounding extractor.</p>
 <h3 id="sandbox">Sandbox<a class="headerlink" href="#sandbox" title="Permanent link">&para;</a></h3>
@@ -742,18 +740,22 @@ prefixes, flavors). <code>RecordingRouteInfosExtractor</code> enumerates all of 
 module under <code>RouterWrapper.recording(...)</code>, where the route decorators become
 no-ops that report each expanded variant with its full metadata (<code>version</code>,
 <code>prefix</code>, <code>deployment</code>, <code>hidden</code>).</p>
-<p>It lives in <code>fastapi_router_lazy.extractors.variants</code> and must be imported
-explicitly (importing it requires the <code>variants</code> extra):</p>
+<p>It lives in <code>fastapi_router_lazy.variants</code> and must be imported explicitly
+(importing it requires the <code>variants</code> extra). Pair it with <code>VariantsRouterLoader</code>
+from the same subpackage, which mounts <code>RouterWrapper</code> objects (including their
+<code>parent</code> chains):</p>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">fastapi</span><span class="w"> </span><span class="kn">import</span> <span class="n">FastAPI</span>
 </span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">fastapi_router_variants</span><span class="w"> </span><span class="kn">import</span> <span class="n">RouterWrapper</span>
 </span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
-</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="kn">from</span><span class="w"> </span><span class="nn">fastapi_router_lazy</span><span class="w"> </span><span class="kn">import</span> <span class="n">RouterLoader</span>
-</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="kn">from</span><span class="w"> </span><span class="nn">fastapi_router_lazy.extractors.variants</span><span class="w"> </span><span class="kn">import</span> <span class="n">RecordingRouteInfosExtractor</span>
-</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>
-</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="n">app</span> <span class="o">=</span> <span class="n">FastAPI</span><span class="p">()</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="kn">from</span><span class="w"> </span><span class="nn">fastapi_router_lazy.variants</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>    <span class="n">RecordingRouteInfosExtractor</span><span class="p">,</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>    <span class="n">VariantsRouterLoader</span><span class="p">,</span>
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="p">)</span>
 </span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>
-</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="n">extractor</span> <span class="o">=</span> <span class="n">RecordingRouteInfosExtractor</span><span class="p">(</span><span class="n">RouterWrapper</span><span class="p">,</span> <span class="s2">&quot;myapp&quot;</span><span class="p">)</span>
-</span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="n">loader</span> <span class="o">=</span> <span class="n">RouterLoader</span><span class="p">(</span><span class="n">extractor</span><span class="p">,</span> <span class="n">app</span><span class="p">)</span>
+</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="n">app</span> <span class="o">=</span> <span class="n">FastAPI</span><span class="p">()</span>
+</span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>
+</span><span id="__span-3-11"><a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="n">extractor</span> <span class="o">=</span> <span class="n">RecordingRouteInfosExtractor</span><span class="p">(</span><span class="n">RouterWrapper</span><span class="p">,</span> <span class="s2">&quot;myapp&quot;</span><span class="p">)</span>
+</span><span id="__span-3-12"><a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="n">loader</span> <span class="o">=</span> <span class="n">VariantsRouterLoader</span><span class="p">(</span><span class="n">extractor</span><span class="p">,</span> <span class="n">app</span><span class="p">)</span>
 </span></code></pre></div>
 <h2 id="writing-your-own-extractor">Writing your own extractor<a class="headerlink" href="#writing-your-own-extractor" title="Permanent link">&para;</a></h2>
 <p>Subclass <code>AbstractRouteInfosExtractor</code> and implement:</p>

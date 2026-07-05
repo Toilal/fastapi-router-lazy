@@ -713,12 +713,14 @@ Override it with <code>router_module_pattern=</code>:</p>
 <p>The pattern is matched with <code>pathlib</code>'s <code>rglob</code> against each candidate file, so
 globs such as <code>"routes.py"</code>, <code>"*_router.py"</code> or <code>"api/*.py"</code> all work.</p>
 <h2 id="working-with-fastapi-router-variants">Working with <code>fastapi-router-variants</code><a class="headerlink" href="#working-with-fastapi-router-variants" title="Permanent link">&para;</a></h2>
-<p><code>RouterLoader</code> also mounts <code>RouterWrapper</code> objects from
-<a href="https://github.com/Toilal/fastapi-router-variants"><code>fastapi-router-variants</code></a>
-when that extra is installed, including their <code>parent</code> chains: the routes are
-included through every parent wrapper before reaching the application. The core
-never imports <code>fastapi_router_variants</code> unless it actually encounters a wrapper,
-so plain-FastAPI projects pay nothing for the integration.</p>
+<p><code>VariantsRouterLoader</code> (from <code>fastapi_router_lazy.variants</code>, <code>variants</code> extra)
+mounts <code>RouterWrapper</code> objects from
+<a href="https://github.com/Toilal/fastapi-router-variants"><code>fastapi-router-variants</code></a>,
+including their <code>parent</code> chains: the routes are included through every parent
+wrapper before reaching the application. It is a drop-in <code>RouterLoader</code>
+subclass — use it in place of <code>RouterLoader</code> when your routers are wrappers. The
+core package never imports <code>fastapi_router_variants</code>, so plain-FastAPI projects
+pay nothing for the integration.</p>
 
 
 
