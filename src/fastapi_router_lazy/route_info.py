@@ -37,6 +37,12 @@ class ExtractedRouteInfo(RouteInfo):
     """
 
     def build_variant(self, path: str) -> ExtractedRouteInfo:
+        """Return a copy of this route info at a different ``path``.
+
+        Public API for variant-aware extractors that derive several stub paths
+        (versioned, prefixed, flavored) from one declared route while keeping
+        all other metadata intact.
+        """
         return ExtractedRouteInfo(
             type=self.type,
             methods=self.methods,
@@ -52,7 +58,12 @@ class ExtractedRouteInfo(RouteInfo):
 
 @dataclass(frozen=True, kw_only=True)
 class MetaRouteInfo(RouteInfo):
-    """Manually declared route metadata (routes defined outside a router)."""
+    """Manually declared route metadata (routes defined outside a router).
+
+    Public API: lets callers describe a route that no scanned ``APIRouter``
+    exposes (e.g. a hand-registered endpoint), carrying the same
+    version/prefix/deployment metadata as an extracted one.
+    """
 
     router_variable: str
     version: Any = None

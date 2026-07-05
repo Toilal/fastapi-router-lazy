@@ -61,15 +61,14 @@ loader, ready to hand to `app.add_middleware`.
 On each incoming HTTP or websocket request, the middleware:
 
 1. looks for a stub route that fully matches the request;
-2. if one matches, tags the request scope with the
-   `x-fastapi-router-lazy-loading-router` header (module + router variable),
-   then calls `RouterLoader.load_router(module, variable)` to import the module
-   and mount the real router;
+2. if one matches, calls `RouterLoader.load_router(module, variable)` (both
+   derived from the stub name) to import the module and mount the real router;
 3. removes the consumed stub routes so subsequent requests hit the real router
    directly;
 4. lets the request fall through to the freshly-mounted route, and echoes the
    `x-fastapi-router-lazy-loading-router` header on the response so you can
-   observe which module was loaded.
+   observe which module was loaded. The header is set on the response only; it
+   is never injected into the request the downstream handlers see.
 
 Each middleware built by `lazy_middleware_factory` gets its own `FastAPI` stub
 app (`app_stub`), so separate applications keep independent stub tables.
@@ -129,6 +128,12 @@ extractor = route_infos_extractor("myapp")
 loader = RouterLoader(extractor, app, deployments={"api"})
 ```
 
+Filtering is **per route**: `filter_with_deployments` decides mount-or-not for
+each `ExtractedRouteInfo` individually, so a single router variable can have some
+of its routes mounted and others skipped depending on their tags. The `hidden`
+flag on a route (an internal-only route, served but not published) is metadata
+for consumers — the loader does **not** consult it when deciding what to mount.
+
 Deployment tags are populated by the variant-aware extractor; see
 [Extractors](./extractors.md).
 
@@ -156,3 +161,25 @@ wrapper before reaching the application. It is a drop-in `RouterLoader`
 subclass — use it in place of `RouterLoader` when your routers are wrappers. The
 core package never imports `fastapi_router_variants`, so plain-FastAPI projects
 pay nothing for the integration.
+
+Limitations
+-----------
+
+Lazy loading trades a little runtime dynamism for startup speed. Keep these in
+mind:
+
+- **The schema is incomplete until routes are hit.** A lazily-declared route is
+  absent from `/openapi.json` and `/docs` until its first matching request
+  mounts the real router. If you need a complete schema up front (contract
+  tests, generated clients), mount eagerly (`loader.load()` with no argument) or
+  pre-warm the routes you care about.
+- **No `include_router`-level `prefix`.** Routers are included as-is by the
+  loader; there is no `prefix=` applied at mount time. Bake any prefix into the
+  router itself (`APIRouter(prefix=...)`).
+- **Stub match order.** A stub and a real route can share a path; Starlette
+  resolves the ambiguity by match order. Avoid overlapping a lazy stub with an
+  already-mounted route on the same path and method.
+- **Concurrency at first request.** Mounting happens on the first matching
+  request. If several requests for the same not-yet-mounted route arrive
+  concurrently, they may each drive a mount; the loader is not designed for
+  concurrent first-touch mounting of the same router.

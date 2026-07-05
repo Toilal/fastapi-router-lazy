@@ -93,6 +93,20 @@ mounts on demand without deferring imports. Eager loading, deployment filtering,
 and the variant/version-aware extractor (`[variants]`) are covered in the
 documentation.
 
+## Limitations
+
+Lazy loading trades some runtime dynamism for startup speed:
+
+- lazily-declared routes are absent from `/openapi.json` and `/docs` until their
+  first matching request mounts them (mount eagerly if you need a complete
+  schema up front);
+- no `prefix=` is applied at `include_router` time — bake prefixes into the
+  `APIRouter` itself;
+- a stub and a real route sharing a path are resolved by Starlette match order.
+
+See the [Limitations](https://toilal.github.io/fastapi-router-lazy/usage/#limitations)
+section of the docs for details.
+
 ## Documentation
 
 Full documentation is available at
