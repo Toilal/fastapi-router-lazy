@@ -47,6 +47,7 @@ lint = [
 test = [
     "pytest",
     "pytest-asyncio",
+    "pytest-benchmark",
     "pytest-cov",
     "httpx",
     # The README examples are type-checked and linted as a test (test_readme.py),
@@ -151,7 +152,6 @@ testpaths = ["tests"]
 pythonpath = ["tests"]
 asyncio_mode = "auto"
 markers = [
-    "benchmark: wall-clock startup benchmark; run with -m benchmark, skip with -m 'not benchmark'",
     "timing_sensitive: wall-clock-dependent; quarantine with -m 'not timing_sensitive' if it flakes",
 ]
 
