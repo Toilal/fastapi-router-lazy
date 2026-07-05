@@ -9,6 +9,7 @@ fall through to the freshly mounted route.
 import logging
 from abc import abstractmethod
 from collections.abc import Callable, Iterable
+from typing import ClassVar
 
 from fastapi import FastAPI
 from fastapi.routing import APIRoute, APIWebSocketRoute
@@ -26,8 +27,8 @@ LAZY_LOADING_ROUTER_HEADER_BYTES = LAZY_LOADING_ROUTER_HEADER.encode("ascii")
 
 class LazyMiddleware(LazyRouteRegistry):
     app: ASGIApp
-    app_stub: FastAPI = FastAPI()
-    _on_all_stubs_consumed: Callable[[], object] | None = None
+    app_stub: ClassVar[FastAPI]
+    _on_all_stubs_consumed: ClassVar[Callable[[], object] | None] = None
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
@@ -100,6 +101,9 @@ class LazyMiddleware(LazyRouteRegistry):
 def factory(router_loader: RouterLoader) -> type[LazyMiddleware]:
     class LazyMiddlewareInstance(LazyMiddleware):
         """ASGI middleware loading router modules on the first matching call."""
+
+        app_stub = FastAPI()
+        _on_all_stubs_consumed: ClassVar[Callable[[], object] | None] = None
 
         async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
             if scope["type"] != "http" and scope["type"] != "websocket":

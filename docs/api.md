@@ -86,8 +86,9 @@ through. Also exported under its internal name `factory`.
 
 ### `LazyMiddleware`
 
-Base ASGI middleware / `LazyRouteRegistry`. Holds the stub routes on a
-class-level `app_stub: FastAPI`. Notable members:
+Base ASGI middleware / `LazyRouteRegistry`. Each subclass built by
+`lazy_middleware_factory` holds the stub routes on its own `app_stub: FastAPI`.
+Notable members:
 
 - `register_lazy_routes(module_route_infos)` — add a stub route (HTTP or
   websocket) per `ExtractedRouteInfo`.
