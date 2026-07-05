@@ -166,6 +166,32 @@ def test_on_all_stubs_consumed_callback_is_scoped_per_app(
     assert fired == ["a"]
 
 
+def test_plain_default_imports_modules_at_load(make_package: MakePackage) -> None:
+    """The default (Plain) extractor imports every module at load() time.
+
+    Negative mirror of test_modules_imported_only_on_first_request_with_cache:
+    Plain reads routes by importing the module, so load() imports it before any
+    request — the deferred-import gain requires a warm cache (or Sandbox).
+    """
+    package = make_package({"users.router": USERS_ROUTER})
+    for name in list(sys.modules):
+        if name == package or name.startswith(f"{package}."):
+            del sys.modules[name]
+
+    app = FastAPI()
+    extractor = route_infos_extractor(package)  # default = Plain, no cache
+    loader = RouterLoader(extractor, app)
+    middleware = lazy_middleware_factory(loader)
+    app.add_middleware(middleware)
+
+    assert f"{package}.users.router" not in sys.modules
+
+    loader.load(middleware)
+
+    # No request made, yet Plain already imported the module to read its routes.
+    assert f"{package}.users.router" in sys.modules
+
+
 def test_modules_imported_only_on_first_request_with_cache(
     make_package: MakePackage, tmp_path: Path
 ) -> None:

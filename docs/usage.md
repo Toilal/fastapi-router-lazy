@@ -12,6 +12,18 @@ Usage
   route per declared route and, on the first matching request, drives the
   loader to mount the real router.
 
+Throughout, `"myapp"` is **your** importable Python package — the one the
+extractor walks to find modules named `router.py`, each exposing an `APIRouter`:
+
+```text
+myapp/                  # <- the package name you pass to route_infos_extractor
+├── __init__.py
+├── users/
+│   └── router.py       # exposes `router = APIRouter()`
+└── items/
+    └── router.py
+```
+
 Lazy loading
 ------------
 

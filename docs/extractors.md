@@ -41,18 +41,31 @@ variant-aware one), or `defaults=` to supply custom `ExtractorDefaults`.
 Available extractors
 --------------------
 
-| Extractor | Extra | Notes |
-|-----------|-------|-------|
-| `PlainRouteInfosExtractor` | — | Default. Imports the module, reads `APIRouter.routes`. |
-| `SandboxRouteInfosExtractor` | — | Isolates the imports in a subprocess. |
-| `CachedRouteInfosExtractor` | — | Persists extraction to a checksum-keyed JSON cache. |
-| `RecordingRouteInfosExtractor` | `variants` | Variant/version-aware; extracts **without** importing route handlers. |
+| Extractor | Extra | Defers imports? | Notes |
+|-----------|-------|-----------------|-------|
+| `PlainRouteInfosExtractor` | — | No | Default. Imports the module, reads `APIRouter.routes`. |
+| `SandboxRouteInfosExtractor` | — | Yes (child process) | Isolates the imports in a subprocess. |
+| `CachedRouteInfosExtractor` | — | Yes (on cache hit) | Persists extraction to a checksum-keyed JSON cache. |
+| `RecordingRouteInfosExtractor` | `variants` | Yes | Variant/version-aware; extracts **without** importing route handlers. |
+
+"Defers imports?" is whether the extractor lets the application start *without*
+importing the router modules — the startup gain behind lazy loading. With the
+default `Plain` extractor it does not: every scanned module is imported when
+`loader.load(...)` enumerates its routes.
 
 ### Plain (default)
 
 `PlainRouteInfosExtractor` needs nothing but FastAPI. It imports the target
 module (running its handlers' import-time side effects), finds every `APIRouter`
 exposed as a module attribute, and reads their already-built routes.
+
+Because it imports each module to read its routes, `Plain` does **not** defer
+imports: with the default extractor every router module is imported at startup,
+when `loader.load(...)` runs. Its value is on-demand *mounting* (a small mounted
+route table, deployment filtering), not a startup import saving. To also defer
+the imports, feed the loader prebuilt metadata via a warm [cache](#cached), the
+[Sandbox](#sandbox) extractor, or the [variant-aware](#variantversion-aware-variants)
+one.
 
 The module-level helper `extract_routes_from_module(module_name)` performs a
 single-module extraction without any surrounding extractor.
