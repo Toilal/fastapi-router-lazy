@@ -11,7 +11,30 @@ from starlette.routing import BaseRoute
 from fastapi_router_lazy.extractors.abc import AbstractRouteInfosExtractor
 from fastapi_router_lazy.route_info import ExtractedRouteInfo
 
+try:
+    from fastapi.routing import iter_route_contexts
+except ImportError:  # pragma: no cover - FastAPI < 0.139 flattens at include time
+    iter_route_contexts = None  # type: ignore[assignment]
+
 logger = logging.getLogger(__name__)
+
+
+def flatten_routes(routes: Sequence[BaseRoute]) -> list[BaseRoute]:
+    """Expand FastAPI 0.139+ ``_IncludedRouter`` wrappers into their real routes.
+
+    Since FastAPI 0.139, ``include_router`` appends a single opaque
+    ``_IncludedRouter`` wrapper instead of the child
+    ``APIRoute``/``APIWebSocketRoute`` objects. Left in a serving router, that
+    wrapper lazily materialises and retains a full effective route tree the
+    first time Starlette matches it, leaking hundreds of MB under load.
+    Expanding it back to its underlying routes restores plain regex matching.
+
+    A no-op on FastAPI 0.115→0.138 (routes are already flat) and on
+    ``Mount``/sub-apps, which are surfaced untouched.
+    """
+    if iter_route_contexts is None:
+        return list(routes)
+    return [context.original_route for context in iter_route_contexts(routes)]
 
 
 @dataclass(frozen=True)
@@ -86,9 +109,10 @@ class RouterLoader:
 
         routes_count = len(app.routes)
         app.include_router(router)
-        included_routes = app.routes[routes_count:]
+        flattened = flatten_routes(app.routes[routes_count:])
+        app.routes[routes_count:] = flattened
 
-        return list(included_routes)
+        return list(flattened)
 
     def load_router(
         self, module_name: str, variables: str | set[str] | None = None
