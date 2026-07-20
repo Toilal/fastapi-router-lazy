@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v0.2.1 (2026-07-20)
+
+### Bug Fixes
+
+- Flatten _IncludedRouter wrappers into serving routes
+  ([#18](https://github.com/Toilal/fastapi-router-lazy/pull/18),
+  [`62b6788`](https://github.com/Toilal/fastapi-router-lazy/commit/62b678874cc071832914c3e083bf5fab2c693d6f))
+
+
 ## v0.2.0 (2026-07-05)
 
 ### Features
