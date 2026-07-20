@@ -6,6 +6,13 @@ from dataclasses import dataclass
 from typing import overload
 
 from fastapi import APIRouter, FastAPI
+from fastapi.routing import (
+    APIRoute,
+    APIWebSocketRoute,
+    get_websocket_app,
+    request_response,
+    websocket_session,
+)
 from starlette.routing import BaseRoute
 
 from fastapi_router_lazy.extractors.abc import AbstractRouteInfosExtractor
@@ -35,6 +42,34 @@ def flatten_routes(routes: Sequence[BaseRoute]) -> list[BaseRoute]:
     if iter_route_contexts is None:
         return list(routes)
     return [context.original_route for context in iter_route_contexts(routes)]
+
+
+def reparent_route(route: BaseRoute, app: FastAPI | APIRouter) -> BaseRoute:
+    """Bind a flattened route to the application that serves it.
+
+    FastAPI 0.139 stores the effective dependency override provider on its
+    included-router context instead of the underlying route. Flattening that
+    context therefore requires rebuilding the route's ASGI handler with the
+    serving application's provider.
+
+    The route is updated in place and returned. Non-FastAPI routes are left
+    untouched.
+    """
+    provider = app if isinstance(app, FastAPI) else app.dependency_overrides_provider
+
+    if isinstance(route, APIRoute):
+        route.dependency_overrides_provider = provider
+        route.app = request_response(route.get_route_handler())
+    elif isinstance(route, APIWebSocketRoute):
+        route.app = websocket_session(
+            get_websocket_app(
+                dependant=route.dependant,
+                dependency_overrides_provider=provider,
+                embed_body_fields=route._embed_body_fields,
+            )
+        )
+
+    return route
 
 
 @dataclass(frozen=True)
@@ -109,7 +144,10 @@ class RouterLoader:
 
         routes_count = len(app.routes)
         app.include_router(router)
-        flattened = flatten_routes(app.routes[routes_count:])
+        flattened = [
+            reparent_route(route, app)
+            for route in flatten_routes(app.routes[routes_count:])
+        ]
         app.routes[routes_count:] = flattened
 
         return list(flattened)

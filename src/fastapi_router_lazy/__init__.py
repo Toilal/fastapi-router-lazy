@@ -44,6 +44,7 @@ from fastapi_router_lazy.router_loader import (
     RouterLoader,
     RouterLoaderMeta,
     flatten_routes,
+    reparent_route,
 )
 
 __version__ = "0.2.1"
@@ -73,5 +74,6 @@ __all__ = [
     "flatten_routes",
     "lazy_middleware_factory",
     "module_checksum",
+    "reparent_route",
     "route_infos_extractor",
 ]
