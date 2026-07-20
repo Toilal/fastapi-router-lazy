@@ -2,6 +2,7 @@ import importlib
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import Iterable, Sequence
+from copy import copy
 from dataclasses import dataclass
 from typing import overload
 
@@ -52,15 +53,20 @@ def reparent_route(route: BaseRoute, app: FastAPI | APIRouter) -> BaseRoute:
     context therefore requires rebuilding the route's ASGI handler with the
     serving application's provider.
 
-    The route is updated in place and returned. Non-FastAPI routes are left
-    untouched.
+    FastAPI routes are shallow-copied before rebinding so the same source
+    router can be included safely in multiple applications. Non-FastAPI routes
+    are returned unchanged.
     """
+    if not isinstance(route, (APIRoute, APIWebSocketRoute)):
+        return route
+
+    route = copy(route)
     provider = app if isinstance(app, FastAPI) else app.dependency_overrides_provider
 
     if isinstance(route, APIRoute):
         route.dependency_overrides_provider = provider
         route.app = request_response(route.get_route_handler())
-    elif isinstance(route, APIWebSocketRoute):
+    else:
         route.app = websocket_session(
             get_websocket_app(
                 dependant=route.dependant,

@@ -59,8 +59,9 @@ reparent_route(route: BaseRoute, app: FastAPI | APIRouter) -> BaseRoute
 
 Binds a flattened HTTP or WebSocket route to the application that will serve
 it and rebuilds its ASGI handler with the effective dependency override
-provider. The route is updated in place and returned; other Starlette route
-types are returned unchanged. `RouterLoader` applies this automatically.
+provider. FastAPI routes are shallow-copied so a source router remains reusable
+across applications; other Starlette route types are returned unchanged.
+`RouterLoader` applies this automatically.
 
 ### `LoadedRouter`
 

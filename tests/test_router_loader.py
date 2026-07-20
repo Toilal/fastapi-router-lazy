@@ -382,3 +382,50 @@ class TestServingRoutesAreFlattened:
 
         with TestClient(app).websocket_connect("/value") as websocket:
             assert websocket.receive_text() == "overridden"
+
+    def test_http_routes_keep_application_overrides_isolated(self) -> None:
+        def get_value() -> str:
+            return "real"
+
+        router = APIRouter()
+
+        @router.get("/value")
+        def read_value(value: str = Depends(get_value)) -> str:
+            return value
+
+        first = FastAPI()
+        second = FastAPI()
+        first_route = RouterLoader._include_router(first, router)[0]
+        second_route = RouterLoader._include_router(second, router)[0]
+        first.dependency_overrides[get_value] = lambda: "first"
+        second.dependency_overrides[get_value] = lambda: "second"
+
+        assert first_route is not second_route
+        assert TestClient(first).get("/value").json() == "first"
+        assert TestClient(second).get("/value").json() == "second"
+
+    def test_websocket_routes_keep_application_overrides_isolated(self) -> None:
+        def get_value() -> str:
+            return "real"
+
+        router = APIRouter()
+
+        @router.websocket("/value")
+        async def read_value(
+            websocket: WebSocket, value: str = Depends(get_value)
+        ) -> None:
+            await websocket.accept()
+            await websocket.send_text(value)
+
+        first = FastAPI()
+        second = FastAPI()
+        first_route = RouterLoader._include_router(first, router)[0]
+        second_route = RouterLoader._include_router(second, router)[0]
+        first.dependency_overrides[get_value] = lambda: "first"
+        second.dependency_overrides[get_value] = lambda: "second"
+
+        assert first_route is not second_route
+        with TestClient(first).websocket_connect("/value") as websocket:
+            assert websocket.receive_text() == "first"
+        with TestClient(second).websocket_connect("/value") as websocket:
+            assert websocket.receive_text() == "second"
