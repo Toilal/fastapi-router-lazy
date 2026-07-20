@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from conftest import MakePackage
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, Depends, FastAPI, WebSocket
 from fastapi.routing import APIRoute
 from starlette.testclient import TestClient
 
@@ -346,3 +346,86 @@ class TestServingRoutesAreFlattened:
         plain = list(app.routes)
 
         assert flatten_routes(plain) == plain
+
+    def test_http_routes_keep_application_dependency_overrides(self) -> None:
+        def get_value() -> str:
+            return "real"
+
+        router = APIRouter()
+
+        @router.get("/value")
+        def read_value(value: str = Depends(get_value)) -> dict[str, str]:
+            return {"value": value}
+
+        app = FastAPI()
+        RouterLoader._include_router(app, router)
+        app.dependency_overrides[get_value] = lambda: "overridden"
+
+        assert TestClient(app).get("/value").json() == {"value": "overridden"}
+
+    def test_websocket_routes_keep_application_dependency_overrides(self) -> None:
+        def get_value() -> str:
+            return "real"
+
+        router = APIRouter()
+
+        @router.websocket("/value")
+        async def read_value(
+            websocket: WebSocket, value: str = Depends(get_value)
+        ) -> None:
+            await websocket.accept()
+            await websocket.send_text(value)
+
+        app = FastAPI()
+        RouterLoader._include_router(app, router)
+        app.dependency_overrides[get_value] = lambda: "overridden"
+
+        with TestClient(app).websocket_connect("/value") as websocket:
+            assert websocket.receive_text() == "overridden"
+
+    def test_http_routes_keep_application_overrides_isolated(self) -> None:
+        def get_value() -> str:
+            return "real"
+
+        router = APIRouter()
+
+        @router.get("/value")
+        def read_value(value: str = Depends(get_value)) -> str:
+            return value
+
+        first = FastAPI()
+        second = FastAPI()
+        first_route = RouterLoader._include_router(first, router)[0]
+        second_route = RouterLoader._include_router(second, router)[0]
+        first.dependency_overrides[get_value] = lambda: "first"
+        second.dependency_overrides[get_value] = lambda: "second"
+
+        assert first_route is not second_route
+        assert TestClient(first).get("/value").json() == "first"
+        assert TestClient(second).get("/value").json() == "second"
+
+    def test_websocket_routes_keep_application_overrides_isolated(self) -> None:
+        def get_value() -> str:
+            return "real"
+
+        router = APIRouter()
+
+        @router.websocket("/value")
+        async def read_value(
+            websocket: WebSocket, value: str = Depends(get_value)
+        ) -> None:
+            await websocket.accept()
+            await websocket.send_text(value)
+
+        first = FastAPI()
+        second = FastAPI()
+        first_route = RouterLoader._include_router(first, router)[0]
+        second_route = RouterLoader._include_router(second, router)[0]
+        first.dependency_overrides[get_value] = lambda: "first"
+        second.dependency_overrides[get_value] = lambda: "second"
+
+        assert first_route is not second_route
+        with TestClient(first).websocket_connect("/value") as websocket:
+            assert websocket.receive_text() == "first"
+        with TestClient(second).websocket_connect("/value") as websocket:
+            assert websocket.receive_text() == "second"

@@ -40,6 +40,29 @@ Key methods:
 - `filter_with_deployments(route_infos)` — keep only the routes whose
   `deployment` matches the loader's `deployments` set (or `True`).
 
+### `flatten_routes`
+
+```python
+flatten_routes(routes: Sequence[BaseRoute]) -> list[BaseRoute]
+```
+
+Expands FastAPI 0.139+ included-router wrappers into the concrete routes they
+contain. It is a no-op for already-flat routes and for FastAPI versions before
+0.139. When serving the returned routes directly, pass each one through
+`reparent_route` so application dependency overrides remain active.
+
+### `reparent_route`
+
+```python
+reparent_route(route: BaseRoute, app: FastAPI | APIRouter) -> BaseRoute
+```
+
+Binds a flattened HTTP or WebSocket route to the application that will serve
+it and rebuilds its ASGI handler with the effective dependency override
+provider. FastAPI routes are shallow-copied so a source router remains reusable
+across applications; other Starlette route types are returned unchanged.
+`RouterLoader` applies this automatically.
+
 ### `LoadedRouter`
 
 ```python
