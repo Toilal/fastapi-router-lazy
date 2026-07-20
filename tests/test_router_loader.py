@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from conftest import MakePackage
 from fastapi import APIRouter, FastAPI
+from fastapi.routing import APIRoute
 from starlette.testclient import TestClient
 
 from fastapi_router_lazy import (
@@ -11,6 +12,7 @@ from fastapi_router_lazy import (
     PlainRouteInfosExtractor,
     RouterLoader,
     RouterLoaderMeta,
+    flatten_routes,
 )
 from fastapi_router_lazy.extractors.abc import AbstractRouteInfosExtractor
 
@@ -288,3 +290,59 @@ class TestRealLoading:
             RouterLoader(extractor, FastAPI()).load_router(
                 f"{package}.bad.router", variables="not_a_router"
             )
+
+
+MULTI_ROUTER = """
+from fastapi import APIRouter
+
+router = APIRouter()
+
+
+@router.get("/a")
+def a() -> str:
+    return "a"
+
+
+@router.get("/b")
+def b() -> str:
+    return "b"
+"""
+
+
+class TestServingRoutesAreFlattened:
+    """Regression for the FastAPI 0.139 ``_IncludedRouter`` memory bomb (#17).
+
+    Since 0.139 ``include_router`` appends a single opaque wrapper whose
+    ``.matches()`` materialises and retains the child dependency tree on first
+    request. The loader must leave only real, regex-matchable routes in the
+    serving table.
+    """
+
+    def test_serving_app_holds_real_routes_not_wrappers(
+        self, make_package: MakePackage
+    ) -> None:
+        package = make_package({"multi.router": MULTI_ROUTER})
+        extractor = PlainRouteInfosExtractor(ExtractorDefaults(), package)
+        app = FastAPI()
+
+        before = len(app.routes)
+        RouterLoader(extractor, app).load()
+        added = app.routes[before:]
+
+        assert len(added) == 2
+        assert all(isinstance(route, APIRoute) for route in added)
+
+        client = TestClient(app)
+        assert client.get("/a").json() == "a"
+        assert client.get("/b").json() == "b"
+
+    def test_flatten_routes_is_noop_on_plain_routes(self) -> None:
+        app = FastAPI()
+
+        @app.get("/x")
+        def x() -> str:
+            return "x"
+
+        plain = list(app.routes)
+
+        assert flatten_routes(plain) == plain
