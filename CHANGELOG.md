@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v0.2.2 (2026-07-25)
+
+### Bug Fixes
+
+- **router-loader**: Isolate reparented routes
+  ([#20](https://github.com/Toilal/fastapi-router-lazy/pull/20),
+  [`b31933a`](https://github.com/Toilal/fastapi-router-lazy/commit/b31933a4738d80f3536eed0908433b7c8d623535))
+
+- **router-loader**: Preserve dependency overrides
+  ([#20](https://github.com/Toilal/fastapi-router-lazy/pull/20),
+  [`b31933a`](https://github.com/Toilal/fastapi-router-lazy/commit/b31933a4738d80f3536eed0908433b7c8d623535))
+
+
 ## v0.2.1 (2026-07-20)
 
 ### Bug Fixes
