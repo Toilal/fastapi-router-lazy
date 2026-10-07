@@ -46,10 +46,19 @@ Key methods:
 flatten_routes(routes: Sequence[BaseRoute]) -> list[BaseRoute]
 ```
 
-Expands FastAPI 0.139+ included-router wrappers into the concrete routes they
-contain. It is a no-op for already-flat routes and for FastAPI versions before
-0.139. When serving the returned routes directly, pass each one through
-`reparent_route` so application dependency overrides remain active.
+Replaces the included-router wrappers that FastAPI 0.137+ `include_router`
+appends with the effective routes they serve. Every route reachable through a
+wrapper, nested includes included, is rebuilt with what its includes apply —
+prefix, dependencies, tags, `responses`, `include_in_schema`, response class,
+unique id function, content-type strictness — and bound to the dependency
+override provider of the router the include was made on, the way FastAPI 0.136
+`include_router` copied routes. The included router's own routes are never
+mutated.
+
+Includes whose router tree holds `APIRouter.frontend()` routes are kept
+wrapped, since FastAPI only serves those through the wrapper. Other routes are
+returned unchanged, so the call is a no-op on FastAPI versions before 0.137.
+`RouterLoader` and the plain and sandbox extractors apply it automatically.
 
 ### `reparent_route`
 
@@ -57,11 +66,11 @@ contain. It is a no-op for already-flat routes and for FastAPI versions before
 reparent_route(route: BaseRoute, app: FastAPI | APIRouter) -> BaseRoute
 ```
 
-Binds a flattened HTTP or WebSocket route to the application that will serve
-it and rebuilds its ASGI handler with the effective dependency override
-provider. FastAPI routes are shallow-copied so a source router remains reusable
-across applications; other Starlette route types are returned unchanged.
-`RouterLoader` applies this automatically.
+Binds an HTTP or WebSocket route to another application and rebuilds its ASGI
+handler with that application's dependency override provider. Routes returned
+by `flatten_routes` are already bound to the router their include was made on.
+FastAPI routes are shallow-copied so a source router remains reusable across
+applications; other Starlette route types are returned unchanged.
 
 ### `LoadedRouter`
 

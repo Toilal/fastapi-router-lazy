@@ -21,6 +21,7 @@ from fastapi_router_lazy.extractors.abc import (
     InitializableExtractor,
 )
 from fastapi_router_lazy.route_info import ExtractedRouteInfo, RouteType
+from fastapi_router_lazy.router_loader import flatten_routes
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +35,11 @@ def _route_type(route: object) -> RouteType | None:
 
 
 def extract_routes_from_module(module_name: str) -> list[ExtractedRouteInfo]:
-    """Import ``module_name`` and read the routes of its FastAPI routers."""
+    """Import ``module_name`` and read the routes of its FastAPI routers.
+
+    Routes reachable through nested includes are reported under the router
+    that includes them, with their effective path.
+    """
     module = importlib.import_module(module_name)
 
     route_infos: list[ExtractedRouteInfo] = []
@@ -44,7 +49,7 @@ def extract_routes_from_module(module_name: str) -> list[ExtractedRouteInfo]:
             continue
         router = value
 
-        for route in router.routes:
+        for route in flatten_routes(router.routes):
             route_type = _route_type(route)
             if route_type is None:
                 continue
