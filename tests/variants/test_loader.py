@@ -2,7 +2,7 @@
 
 import pytest
 from conftest import MakePackage
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from starlette.testclient import TestClient
 
 pytest.importorskip("fastapi_router_variants")
@@ -72,3 +72,22 @@ def test_mounts_plain_apirouter(make_package: MakePackage) -> None:
     client = TestClient(app)
     # A plain APIRouter (not a RouterWrapper) is delegated to the base loader.
     assert client.get("/plain").status_code < 400
+
+
+def test_parent_wrapper_dependencies_run_once() -> None:
+    calls: list[str] = []
+
+    def parent_dependency() -> None:
+        calls.append("parent")
+
+    parent = RouterWrapper(version=False, dependencies=[Depends(parent_dependency)])
+    wrapper = RouterWrapper(version=False, parent=parent)
+
+    @wrapper.get("/child")
+    def child() -> None: ...
+
+    app = FastAPI()
+    VariantsRouterLoader._include_with_parents(app, wrapper.base, wrapper.parent)
+
+    assert TestClient(app).get("/child").status_code < 400
+    assert calls == ["parent"]

@@ -1,8 +1,13 @@
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
+import fastapi.routing
 import pytest
 from conftest import MakePackage
-from fastapi import APIRouter, Depends, FastAPI, WebSocket
+from fastapi import APIRouter, Depends, FastAPI, Request, Response, WebSocket
+from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.routing import APIRoute
 from starlette.testclient import TestClient
 
@@ -429,3 +434,176 @@ class TestServingRoutesAreFlattened:
             assert websocket.receive_text() == "first"
         with TestClient(second).websocket_connect("/value") as websocket:
             assert websocket.receive_text() == "second"
+
+
+requires_included_router = pytest.mark.skipif(
+    not hasattr(fastapi.routing, "_IncludedRouter"),
+    reason="FastAPI < 0.137 copies included routes",
+)
+
+
+def _has_included_router(app: FastAPI) -> bool:
+    return any(type(route).__name__ == "_IncludedRouter" for route in app.routes)
+
+
+class MarkedResponse(JSONResponse):
+    def __init__(
+        self, content: object = None, status_code: int = 200, **kwargs: Any
+    ) -> None:
+        super().__init__(content, status_code, **kwargs)
+        self.headers["x-response-class"] = "include"
+
+
+def _tracked(calls: list[str], name: str) -> Callable[[], None]:
+    def dependency() -> None:
+        calls.append(name)
+
+    return dependency
+
+
+def _items_router(calls: list[str]) -> APIRouter:
+    child = APIRouter(dependencies=[Depends(_tracked(calls, "child"))])
+
+    @child.get("/items/{item_id}", tags=["route"])
+    def read_item(item_id: int) -> int:
+        calls.append("endpoint")
+        return item_id
+
+    return child
+
+
+class TestIncludeContextIsPreserved:
+    """Loaded routes keep what their includes apply (#22).
+
+    Since FastAPI 0.137 the include context (prefix, dependencies, tags, …) of
+    the target app, of the loaded router and of nested includes lives on the
+    ``_IncludedRouter`` wrapper, not on the child routes.
+    """
+
+    def test_application_dependencies_run_once(self) -> None:
+        calls: list[str] = []
+        app = FastAPI(dependencies=[Depends(_tracked(calls, "app"))])
+        RouterLoader._include_router(app, _items_router(calls))
+
+        assert TestClient(app).get("/items/1").json() == 1
+        assert calls == ["app", "child", "endpoint"]
+
+    def test_nested_include_keeps_prefix_and_dependencies(self) -> None:
+        calls: list[str] = []
+        module_router = APIRouter(dependencies=[Depends(_tracked(calls, "module"))])
+        module_router.include_router(
+            _items_router(calls),
+            prefix="/sub",
+            dependencies=[Depends(_tracked(calls, "include"))],
+        )
+        app = FastAPI(dependencies=[Depends(_tracked(calls, "app"))])
+        RouterLoader._include_router(app, module_router)
+        client = TestClient(app)
+
+        assert client.get("/sub/items/1").json() == 1
+        assert calls == ["app", "module", "include", "child", "endpoint"]
+        assert client.get("/items/1").status_code == 404
+
+    def test_nested_include_settings_reach_openapi_and_responses(self) -> None:
+        calls: list[str] = []
+        hidden = APIRouter(include_in_schema=False)
+
+        @hidden.get("/hidden")
+        def read_hidden() -> str:
+            return "hidden"
+
+        module_router = APIRouter()
+        module_router.include_router(
+            _items_router(calls),
+            prefix="/sub",
+            tags=["include"],
+            responses={418: {"description": "Teapot"}},
+            default_response_class=MarkedResponse,
+        )
+        module_router.include_router(hidden)
+        app = FastAPI()
+        RouterLoader._include_router(app, module_router)
+        client = TestClient(app)
+
+        paths = app.openapi()["paths"]
+        assert list(paths) == ["/sub/items/{item_id}"]
+        operation = paths["/sub/items/{item_id}"]["get"]
+        assert operation["tags"] == ["include", "route"]
+        assert "418" in operation["responses"]
+        assert client.get("/sub/items/1").headers["x-response-class"] == "include"
+        assert client.get("/hidden").json() == "hidden"
+
+    def test_nested_include_dependencies_are_overridable(self) -> None:
+        calls: list[str] = []
+        include_dependency = _tracked(calls, "include")
+        module_router = APIRouter()
+        module_router.include_router(
+            _items_router(calls), dependencies=[Depends(include_dependency)]
+        )
+        app = FastAPI()
+        RouterLoader._include_router(app, module_router)
+        app.dependency_overrides[include_dependency] = _tracked(calls, "override")
+
+        assert TestClient(app).get("/items/1").json() == 1
+        assert calls == ["override", "child", "endpoint"]
+
+    @requires_included_router
+    def test_nested_include_serves_websocket_route_and_mount(self) -> None:
+        calls: list[str] = []
+        child = APIRouter()
+
+        @child.websocket("/ws")
+        async def echo(websocket: WebSocket) -> None:
+            await websocket.accept()
+            await websocket.send_text("ws")
+
+        async def plain(request: Request) -> Response:
+            return PlainTextResponse("plain")
+
+        child.add_route("/plain", plain)
+        child.mount("/static", app=PlainTextResponse("mounted"))
+        module_router = APIRouter()
+        module_router.include_router(
+            child, prefix="/sub", dependencies=[Depends(_tracked(calls, "include"))]
+        )
+        app = FastAPI()
+        RouterLoader._include_router(app, module_router)
+        client = TestClient(app)
+
+        with client.websocket_connect("/sub/ws") as websocket:
+            assert websocket.receive_text() == "ws"
+        assert calls == ["include"]
+        assert client.get("/sub/plain").text == "plain"
+        assert client.get("/sub/static/file").text == "mounted"
+
+    @requires_included_router
+    def test_no_included_router_left_in_serving_routes(self) -> None:
+        calls: list[str] = []
+        module_router = APIRouter(dependencies=[Depends(_tracked(calls, "module"))])
+        module_router.include_router(_items_router(calls), prefix="/sub")
+        app = FastAPI()
+
+        added = RouterLoader._include_router(app, module_router)
+
+        assert added
+        assert not _has_included_router(app)
+
+    @pytest.mark.skipif(
+        not hasattr(APIRouter, "frontend"), reason="FastAPI < 0.138 has no frontend"
+    )
+    def test_include_with_frontend_routes_stays_wrapped(self, tmp_path: Path) -> None:
+        (tmp_path / "index.html").write_text("<p>frontend</p>")
+        module_router = APIRouter()
+        module_router.frontend("/web", directory=tmp_path)
+
+        @module_router.get("/api")
+        def api() -> str:
+            return "api"
+
+        app = FastAPI()
+        RouterLoader._include_router(app, module_router)
+        client = TestClient(app)
+
+        assert _has_included_router(app)
+        assert "frontend" in client.get("/web/").text
+        assert client.get("/api").json() == "api"
