@@ -43,6 +43,30 @@ async def ws_endpoint(websocket) -> None: ...
 """
 
 
+NESTED_ROUTER = """
+from fastapi import APIRouter, WebSocket
+
+child = APIRouter()
+
+
+@child.get("/items")
+def list_items() -> list[str]:
+    return ["book"]
+
+
+ws_child = APIRouter()
+
+
+@ws_child.websocket("/ws")
+async def ws_endpoint(websocket: WebSocket) -> None: ...
+
+
+router = APIRouter()
+router.include_router(child, prefix="/sub")
+router.include_router(ws_child, prefix="/sub")
+"""
+
+
 def _extractor(package: str) -> PlainRouteInfosExtractor:
     return PlainRouteInfosExtractor(ExtractorDefaults(), package)
 
@@ -116,3 +140,14 @@ def test_extract_routes_from_module_standalone(make_package: MakePackage) -> Non
     package = make_package({"items.router": ITEMS_ROUTER})
     infos = extract_routes_from_module(f"{package}.items.router")
     assert [i.path for i in infos] == ["/items"]
+
+
+def test_extract_routes_from_nested_includes(make_package: MakePackage) -> None:
+    package = make_package({"nested.router": NESTED_ROUTER})
+    infos = extract_routes_from_module(f"{package}.nested.router")
+    assert {(i.router_variable, i.path, i.type) for i in infos} == {
+        ("child", "/items", "http"),
+        ("ws_child", "/ws", "websocket"),
+        ("router", "/sub/items", "http"),
+        ("router", "/sub/ws", "websocket"),
+    }

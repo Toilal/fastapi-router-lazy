@@ -49,6 +49,21 @@ def list_users() -> list[str]:
     return ["alice"]
 """
 
+NESTED_ROUTER = """
+from fastapi import APIRouter
+
+child = APIRouter()
+
+
+@child.get("/items")
+def list_items() -> list[str]:
+    return ["book"]
+
+
+router = APIRouter()
+router.include_router(child, prefix="/sub")
+"""
+
 EMPTY_ROUTER = "answer = 42\n"
 
 
@@ -61,6 +76,17 @@ def test_extract_routes_sandboxed(make_package: MakePackage) -> None:
     infos = extract_routes_sandboxed([f"{package}.users.router"])
     assert [i.path for i in infos] == ["/users"]
     assert infos[0].router_variable == "router"
+
+
+def test_extract_routes_sandboxed_reads_nested_includes(
+    make_package: MakePackage,
+) -> None:
+    package = make_package({"nested.router": NESTED_ROUTER})
+    infos = extract_routes_sandboxed([f"{package}.nested.router"])
+    assert {(i.router_variable, i.path) for i in infos} == {
+        ("child", "/items"),
+        ("router", "/sub/items"),
+    }
 
 
 def test_sandbox_extractor_extract_module(make_package: MakePackage) -> None:

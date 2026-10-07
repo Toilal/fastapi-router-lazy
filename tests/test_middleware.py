@@ -67,6 +67,26 @@ async def ws_endpoint(websocket: WebSocket) -> None:
 """
 
 
+NESTED_ROUTER = """
+from fastapi import APIRouter, Depends, Response
+
+child = APIRouter()
+
+
+@child.get("/items")
+def list_items() -> list[str]:
+    return ["book"]
+
+
+def mark(response: Response) -> None:
+    response.headers["x-include"] = "1"
+
+
+router = APIRouter()
+router.include_router(child, prefix="/sub", dependencies=[Depends(mark)])
+"""
+
+
 def _build(
     make_package: MakePackage, modules: dict[str, str]
 ) -> tuple[FastAPI, str, type[LazyMiddleware]]:
@@ -115,6 +135,18 @@ def test_second_request_still_served(make_package: MakePackage) -> None:
     assert client.get("/users").status_code == 200
     # The stub was consumed; the real route keeps serving.
     assert client.get("/users").json() == ["alice"]
+
+
+def test_nested_include_route_lazily_mounted(make_package: MakePackage) -> None:
+    app, _, middleware = _build(make_package, {"nested.router": NESTED_ROUTER})
+    client = TestClient(app)
+
+    assert "/sub/items" in _stub_paths(middleware)
+    response = client.get("/sub/items")
+
+    assert response.json() == ["book"]
+    assert response.headers["x-include"] == "1"
+    assert client.get("/sub/items").headers["x-include"] == "1"
 
 
 def test_only_matching_stub_is_consumed(make_package: MakePackage) -> None:
