@@ -588,6 +588,20 @@ class TestIncludeContextIsPreserved:
         assert added
         assert not _has_included_router(app)
 
+    @requires_included_router
+    def test_flatten_routes_leaves_caller_wrappers_uncached(self) -> None:
+        calls: list[str] = []
+        module_router = APIRouter()
+        module_router.include_router(_items_router(calls), prefix="/sub")
+        wrapper = module_router.routes[0]
+
+        flattened = flatten_routes(module_router.routes)
+
+        assert [getattr(route, "path", None) for route in flattened] == [
+            "/sub/items/{item_id}"
+        ]
+        assert not getattr(wrapper, "_effective_candidates", None)
+
     @pytest.mark.skipif(
         not hasattr(APIRouter, "frontend"), reason="FastAPI < 0.138 has no frontend"
     )

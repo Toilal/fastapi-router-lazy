@@ -116,9 +116,11 @@ def flatten_routes(routes: Sequence[BaseRoute]) -> list[BaseRoute]:
         if _is_included_router(route) and not _has_low_priority_routes(
             included.original_router
         ):
+            # A copy keeps FastAPI's effective-context cache off the caller's
+            # wrapper, which may outlive this call (a module's own router).
             flattened.extend(
                 _materialize_route_context(context)
-                for context in included.effective_route_contexts()
+                for context in copy(included).effective_route_contexts()
             )
         else:
             flattened.append(route)
