@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v0.2.4 (2026-10-08)
+
+### Bug Fixes
+
+- **variants**: Leave no child residue on parent RouterWrappers
+  ([#25](https://github.com/Toilal/fastapi-router-lazy/pull/25),
+  [`5ffdcb9`](https://github.com/Toilal/fastapi-router-lazy/commit/5ffdcb9d2a4c595b6ebbdd74c2aebbd6dbf6c563))
+
+
 ## v0.2.3 (2026-10-08)
 
 ### Bug Fixes
