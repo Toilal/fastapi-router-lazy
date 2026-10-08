@@ -2,6 +2,27 @@
 
 <!-- version list -->
 
+## v0.2.3 (2026-10-08)
+
+### Bug Fixes
+
+- Rebuild loaded routes from their effective include context
+  ([#23](https://github.com/Toilal/fastapi-router-lazy/pull/23),
+  [`11f1c6a`](https://github.com/Toilal/fastapi-router-lazy/commit/11f1c6a9d870037ab7d6ee15a00de6b2252d7ae8))
+
+- **extractor**: Register routes reached through nested includes
+  ([#23](https://github.com/Toilal/fastapi-router-lazy/pull/23),
+  [`11f1c6a`](https://github.com/Toilal/fastapi-router-lazy/commit/11f1c6a9d870037ab7d6ee15a00de6b2252d7ae8))
+
+- **router-loader**: Keep effective contexts off the caller's wrappers
+  ([#23](https://github.com/Toilal/fastapi-router-lazy/pull/23),
+  [`11f1c6a`](https://github.com/Toilal/fastapi-router-lazy/commit/11f1c6a9d870037ab7d6ee15a00de6b2252d7ae8))
+
+- **router-loader**: Rebuild loaded routes from their effective include context
+  ([#23](https://github.com/Toilal/fastapi-router-lazy/pull/23),
+  [`11f1c6a`](https://github.com/Toilal/fastapi-router-lazy/commit/11f1c6a9d870037ab7d6ee15a00de6b2252d7ae8))
+
+
 ## v0.2.2 (2026-07-25)
 
 ### Bug Fixes

@@ -47,7 +47,7 @@ from fastapi_router_lazy.router_loader import (
     reparent_route,
 )
 
-__version__ = "0.2.2"
+__version__ = "0.2.3"
 
 __all__ = [
     "LAZY_LOADING_ROUTER_HEADER",
