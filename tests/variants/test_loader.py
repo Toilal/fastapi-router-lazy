@@ -1,8 +1,11 @@
 """VariantsRouterLoader tests (require the optional 'variants' extra)."""
 
+import warnings
+
 import pytest
 from conftest import MakePackage
 from fastapi import Depends, FastAPI
+from fastapi.routing import APIRoute
 from starlette.testclient import TestClient
 
 pytest.importorskip("fastapi_router_variants")
@@ -91,3 +94,96 @@ def test_parent_wrapper_dependencies_run_once() -> None:
 
     assert TestClient(app).get("/child").status_code < 400
     assert calls == ["parent"]
+
+
+def _api_paths(app: FastAPI) -> list[str]:
+    return sorted(route.path for route in app.routes if isinstance(route, APIRoute))
+
+
+def _duplicate_operation_id_warnings(app: FastAPI) -> list[str]:
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        app.openapi()
+    return [
+        str(warning.message)
+        for warning in caught
+        if "Duplicate Operation ID" in str(warning.message)
+    ]
+
+
+class TestChildLoadedBeforeAncestors:
+    """Loading a child leaves no trace on its ancestors (#24)."""
+
+    def test_parent_routes_are_left_unchanged(self) -> None:
+        parent = RouterWrapper(version=False)
+        child = RouterWrapper(version=False, parent=parent)
+
+        @parent.get("/parent")
+        def read_parent() -> None: ...
+
+        @child.get("/child")
+        def read_child() -> None: ...
+
+        parent_routes = parent.base.routes
+        before = list(parent_routes)
+        VariantsRouterLoader._include_with_parents(FastAPI(), child.base, child.parent)
+
+        assert parent.base.routes is parent_routes
+        assert parent.base.routes == before
+
+    def test_child_then_parent_serves_each_route_once(self) -> None:
+        parent = RouterWrapper(version=False)
+        child = RouterWrapper(version=False, parent=parent)
+
+        @parent.get("/parent")
+        def read_parent() -> None: ...
+
+        @child.get("/child")
+        def read_child() -> None: ...
+
+        app = FastAPI()
+        VariantsRouterLoader._include_with_parents(app, child.base, child.parent)
+        VariantsRouterLoader._include_with_parents(app, parent.base, parent.parent)
+
+        assert _api_paths(app) == ["/child", "/parent"]
+        assert _duplicate_operation_id_warnings(app) == []
+
+    def test_grandparent_chain_keeps_ancestors_and_dependencies(self) -> None:
+        calls: list[str] = []
+
+        def grand_dependency() -> None:
+            calls.append("grand")
+
+        def parent_dependency() -> None:
+            calls.append("parent")
+
+        grand = RouterWrapper(version=False, dependencies=[Depends(grand_dependency)])
+        parent = RouterWrapper(
+            version=False, parent=grand, dependencies=[Depends(parent_dependency)]
+        )
+        child = RouterWrapper(version=False, parent=parent)
+
+        @grand.get("/grand")
+        def read_grand() -> None: ...
+
+        @parent.get("/parent")
+        def read_parent() -> None: ...
+
+        @child.get("/child")
+        def read_child() -> None: ...
+
+        before = {id(wrapper): list(wrapper.base.routes) for wrapper in (grand, parent)}
+        app = FastAPI()
+        VariantsRouterLoader._include_with_parents(app, child.base, child.parent)
+
+        assert all(
+            wrapper.base.routes == before[id(wrapper)] for wrapper in (grand, parent)
+        )
+
+        VariantsRouterLoader._include_with_parents(app, parent.base, parent.parent)
+        VariantsRouterLoader._include_with_parents(app, grand.base, grand.parent)
+
+        assert _api_paths(app) == ["/child", "/grand", "/parent"]
+        assert _duplicate_operation_id_warnings(app) == []
+        assert TestClient(app).get("/child").status_code < 400
+        assert calls == ["grand", "parent"]

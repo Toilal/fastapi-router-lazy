@@ -51,14 +51,12 @@ class VariantsRouterLoader(RouterLoader):
         if parent_router is None:
             return cls._include_router(app, router)
 
-        routes_count = len(parent_router.base.routes)
-        parent_router.include_router(router)
-        included_routes = parent_router.base.routes[routes_count:]
-
         parent_routes = parent_router.base.routes
         try:
-            # Include the parent router with the freshly added routes only.
-            parent_router.base.routes = list(included_routes)
+            # Include the child into an emptied parent, so the parent is mounted
+            # with the child's routes only and keeps none of them afterwards.
+            parent_router.base.routes = []
+            parent_router.include_router(router)
             return cls._include_with_parents(
                 app, parent_router.base, parent_router.parent
             )
