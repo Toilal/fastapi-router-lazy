@@ -1283,18 +1283,26 @@ plain <code>fastapi.APIRouter</code> objects. To mount <code>fastapi-router-vari
 <h3 id="flatten_routes"><code>flatten_routes</code><a class="headerlink" href="#flatten_routes" title="Permanent link">&para;</a></h3>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">flatten_routes</span><span class="p">(</span><span class="n">routes</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">BaseRoute</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">BaseRoute</span><span class="p">]</span>
 </span></code></pre></div>
-<p>Expands FastAPI 0.139+ included-router wrappers into the concrete routes they
-contain. It is a no-op for already-flat routes and for FastAPI versions before
-0.139. When serving the returned routes directly, pass each one through
-<code>reparent_route</code> so application dependency overrides remain active.</p>
+<p>Replaces the included-router wrappers that FastAPI 0.137+ <code>include_router</code>
+appends with the effective routes they serve. Every route reachable through a
+wrapper, nested includes included, is rebuilt with what its includes apply —
+prefix, dependencies, tags, <code>responses</code>, <code>include_in_schema</code>, response class,
+unique id function, content-type strictness — and bound to the dependency
+override provider of the router the include was made on, the way FastAPI 0.136
+<code>include_router</code> copied routes. The included router's own routes are never
+mutated.</p>
+<p>Includes whose router tree holds <code>APIRouter.frontend()</code> routes are kept
+wrapped, since FastAPI only serves those through the wrapper. Other routes are
+returned unchanged, so the call is a no-op on FastAPI versions before 0.137.
+<code>RouterLoader</code> and the plain and sandbox extractors apply it automatically.</p>
 <h3 id="reparent_route"><code>reparent_route</code><a class="headerlink" href="#reparent_route" title="Permanent link">&para;</a></h3>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">reparent_route</span><span class="p">(</span><span class="n">route</span><span class="p">:</span> <span class="n">BaseRoute</span><span class="p">,</span> <span class="n">app</span><span class="p">:</span> <span class="n">FastAPI</span> <span class="o">|</span> <span class="n">APIRouter</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">BaseRoute</span>
 </span></code></pre></div>
-<p>Binds a flattened HTTP or WebSocket route to the application that will serve
-it and rebuilds its ASGI handler with the effective dependency override
-provider. FastAPI routes are shallow-copied so a source router remains reusable
-across applications; other Starlette route types are returned unchanged.
-<code>RouterLoader</code> applies this automatically.</p>
+<p>Binds an HTTP or WebSocket route to another application and rebuilds its ASGI
+handler with that application's dependency override provider. Routes returned
+by <code>flatten_routes</code> are already bound to the router their include was made on.
+FastAPI routes are shallow-copied so a source router remains reusable across
+applications; other Starlette route types are returned unchanged.</p>
 <h3 id="loadedrouter"><code>LoadedRouter</code><a class="headerlink" href="#loadedrouter" title="Permanent link">&para;</a></h3>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nd">@dataclass</span>
 </span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="k">class</span><span class="w"> </span><span class="nc">LoadedRouter</span><span class="p">:</span>
