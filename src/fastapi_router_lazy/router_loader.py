@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any, cast, overload
 
 from fastapi import APIRouter, FastAPI
+from fastapi.datastructures import Default
 from fastapi.routing import (
     APIRoute,
     APIWebSocketRoute,
@@ -52,12 +53,18 @@ def _materialize_api_route(context: Any) -> APIRoute:
     if _API_ROUTE_ACCEPTS_STRICT_CONTENT_TYPE:
         kwargs["strict_content_type"] = context.strict_content_type
     route_class = cast("type[APIRoute]", type(context.original_route))
+    # FastAPI infers a streamed item type from the endpoint's return annotation
+    # only while response_model is left to its default, and the effective
+    # context of a streamed route carries an explicit None.
+    stream_item_type = getattr(context.original_route, "stream_item_type", None)
     return route_class(
         context.path,
         context.endpoint,
-        response_model=context.response_model,
+        response_model=(
+            Default(None) if stream_item_type is not None else context.response_model
+        ),
         status_code=context.status_code,
-        tags=context.tags,
+        tags=list(dict.fromkeys(context.tags)),
         dependencies=context.dependencies,
         summary=context.summary,
         description=context.description,

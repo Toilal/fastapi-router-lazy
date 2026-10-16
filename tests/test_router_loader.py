@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -9,6 +9,7 @@ from conftest import MakePackage
 from fastapi import APIRouter, Depends, FastAPI, Request, Response, WebSocket
 from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.routing import APIRoute
+from pydantic import BaseModel
 from starlette.testclient import TestClient
 
 from fastapi_router_lazy import (
@@ -442,6 +443,10 @@ requires_included_router = pytest.mark.skipif(
 )
 
 
+class StreamedValue(BaseModel):
+    value: int
+
+
 def _has_included_router(app: FastAPI) -> bool:
     return any(type(route).__name__ == "_IncludedRouter" for route in app.routes)
 
@@ -621,3 +626,37 @@ class TestIncludeContextIsPreserved:
         assert _has_included_router(app)
         assert "frontend" in client.get("/web/").text
         assert client.get("/api").json() == "api"
+
+    @requires_included_router
+    def test_streamed_route_keeps_its_item_type(self) -> None:
+        child = APIRouter()
+
+        @child.get("/values/stream")
+        async def stream_values() -> AsyncIterator[StreamedValue]:
+            yield StreamedValue(value=1)
+
+        parent = APIRouter(tags=["parent"])
+        parent.include_router(child)
+
+        (module_route,) = child.routes
+        (served,) = flatten_routes(parent.routes)
+
+        assert isinstance(module_route, APIRoute)
+        assert isinstance(served, APIRoute)
+        assert module_route.stream_item_type is StreamedValue
+        assert served.stream_item_type is StreamedValue
+
+    @requires_included_router
+    def test_repeated_tags_are_listed_once_in_first_seen_order(self) -> None:
+        child = APIRouter(tags=["parent", "child"])
+
+        @child.get("/items", tags=["route", "parent"])
+        def list_items() -> None: ...
+
+        parent = APIRouter(tags=["parent"])
+        parent.include_router(child, tags=["child"])
+
+        (served,) = flatten_routes(parent.routes)
+
+        assert isinstance(served, APIRoute)
+        assert served.tags == ["parent", "child", "route"]
