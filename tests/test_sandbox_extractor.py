@@ -149,3 +149,28 @@ def test_sandbox_routeless_module_does_not_respawn(
 
     assert extractor.extract_module_route_infos(f"{package}.empty.router") == []
     assert spawns == []
+
+
+def test_sandbox_reextracts_reset_modules_in_one_process(
+    make_package: MakePackage, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    package = make_package({"users.router": USERS_ROUTER, "items.router": ITEMS_ROUTER})
+    extractor = SandboxRouteInfosExtractor(ExtractorDefaults(), package)
+    extractor.init()
+    users, items = f"{package}.users.router", f"{package}.items.router"
+    extractor.reset({users, items})
+
+    spawns: list[list[str]] = []
+    original = sandbox_module.extract_routes_sandboxed
+
+    def _counting(
+        modules: list[str], python_executable: str = sys.executable
+    ) -> list[ExtractedRouteInfo]:
+        spawns.append(modules)
+        return original(modules, python_executable)
+
+    monkeypatch.setattr(sandbox_module, "extract_routes_sandboxed", _counting)
+
+    assert [i.path for i in extractor.extract_module_route_infos(users)] == ["/users"]
+    assert [i.path for i in extractor.extract_module_route_infos(items)] == ["/items"]
+    assert [sorted(modules) for modules in spawns] == [sorted([users, items])]

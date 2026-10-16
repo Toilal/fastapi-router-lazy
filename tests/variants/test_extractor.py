@@ -1,12 +1,19 @@
 """Variant-aware extraction tests (require the optional 'variants' extra)."""
 
+import importlib
+
 import pytest
 from conftest import MakePackage
 
 pytest.importorskip("fastapi_router_variants")
 
 from fastapi_router_variants import RouterWrapper
-from routers import HIDDEN_ROUTER, VARIANTS_ROUTER
+from routers import (
+    HIDDEN_ROUTER,
+    SUBCLASS_ROUTER,
+    SUBCLASS_WRAPPER,
+    VARIANTS_ROUTER,
+)
 
 from fastapi_router_lazy.variants import RecordingRouteInfosExtractor
 
@@ -58,3 +65,20 @@ def test_captures_hidden_and_deployment(make_package: MakePackage) -> None:
     assert len(infos) == 1
     assert infos[0].hidden is True
     assert infos[0].deployment == "metrics"
+
+
+def test_resolves_routes_declared_through_a_wrapping_subclass(
+    make_package: MakePackage,
+) -> None:
+    package = make_package(
+        {"wrapping": SUBCLASS_WRAPPER, "location.router": SUBCLASS_ROUTER}
+    )
+    wrapper_class = importlib.import_module(f"{package}.wrapping").AppRouterWrapper
+    extractor = RecordingRouteInfosExtractor(wrapper_class, package)
+
+    infos = extractor.extract_module_route_infos(f"{package}.location.router")
+
+    assert sorted(i.path for i in infos) == ["/v1/location", "/v2/location"]
+    assert {(i.router_module, i.router_variable) for i in infos} == {
+        (f"{package}.location.router", "router")
+    }

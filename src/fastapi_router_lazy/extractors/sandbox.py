@@ -27,12 +27,16 @@ from fastapi_router_lazy.route_info import ExtractedRouteInfo
 logger = logging.getLogger(__name__)
 
 
-def extract_routes_sandboxed(
-    modules: list[str], python_executable: str = sys.executable
+def run_sandboxed(
+    entrypoint: str, arguments: list[str], python_executable: str = sys.executable
 ) -> list[ExtractedRouteInfo]:
-    if not modules:
-        return []
+    """Run ``python -m <entrypoint> <result file> <arguments...>`` in a child.
 
+    The child pickles a list of :class:`ExtractedRouteInfo` to the result file;
+    a non-zero exit raises ``RuntimeError`` carrying the child's stderr, and
+    the stderr of a successful child is relayed as a warning, since that is
+    where its own log records go.
+    """
     # Propagate the parent's import path so the child resolves the same modules.
     env = dict(os.environ)
     existing = env.get("PYTHONPATH", "")
@@ -48,16 +52,28 @@ def extract_routes_sandboxed(
     os.close(fd)
     try:
         process = subprocess.run(
-            [python_executable, "-m", __name__, result_path, *modules],
+            [
+                python_executable,
+                # The entry point module is also imported by its package, which
+                # makes runpy warn on every run.
+                "-W",
+                "ignore::RuntimeWarning:runpy",
+                "-m",
+                entrypoint,
+                result_path,
+                *arguments,
+            ],
             capture_output=True,
             env=env,
         )
+        stderr = process.stderr.decode(errors="replace")
 
         if process.returncode != 0:
             raise RuntimeError(
-                f"Sandbox process exited with code {process.returncode}\n"
-                f"{process.stderr.decode()}"
+                f"Sandbox process exited with code {process.returncode}\n{stderr}"
             )
+        if stderr:
+            logger.warning(f"Sandbox process {entrypoint} wrote to stderr:\n{stderr}")
 
         with open(result_path, "rb") as fp:
             payload = fp.read()
@@ -65,6 +81,14 @@ def extract_routes_sandboxed(
         os.unlink(result_path)
 
     return cast("list[ExtractedRouteInfo]", pickle.loads(payload))
+
+
+def extract_routes_sandboxed(
+    modules: list[str], python_executable: str = sys.executable
+) -> list[ExtractedRouteInfo]:
+    if not modules:
+        return []
+    return run_sandboxed(__name__, modules, python_executable)
 
 
 class SandboxRouteInfosExtractor(AbstractRouteInfosExtractor, InitializableExtractor):
@@ -103,8 +127,11 @@ class SandboxRouteInfosExtractor(AbstractRouteInfosExtractor, InitializableExtra
         # rediscover that the module has no routes (mirrors Plain.init).
         for module_name in to_extract:
             self.modules.setdefault(module_name, [])
-        for route_info in extract_routes_sandboxed(to_extract, self.python_executable):
+        for route_info in self._extract_sandboxed(to_extract):
             self.modules.setdefault(route_info.router_module, []).append(route_info)
+
+    def _extract_sandboxed(self, modules: list[str]) -> list[ExtractedRouteInfo]:
+        return extract_routes_sandboxed(modules, self.python_executable)
 
     def extract_module_route_infos(
         self,
@@ -113,9 +140,13 @@ class SandboxRouteInfosExtractor(AbstractRouteInfosExtractor, InitializableExtra
     ) -> list[ExtractedRouteInfo]:
         route_infos = self.modules.get(module_name)
         if route_infos is None:
-            route_infos = extract_routes_sandboxed(
-                [module_name], self.python_executable
-            )
+            # A cache rebuild resets the invalid modules then asks for them one
+            # by one: extract every missing module in a single child process
+            # rather than spawning one per module.
+            self.init()
+            route_infos = self.modules.get(module_name)
+        if route_infos is None:
+            route_infos = self._extract_sandboxed([module_name])
             self.modules[module_name] = route_infos
 
         if router_variables is None:

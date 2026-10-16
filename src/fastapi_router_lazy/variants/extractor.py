@@ -59,18 +59,36 @@ def _variable_from_frame(
     return None
 
 
-def _record_origin() -> tuple[str, str] | None:
+def _router_wrapper_paths(router_wrapper_class: type[RouterWrapper]) -> tuple[str, ...]:
+    """Source files of ``router_wrapper_class`` and of every class it inherits.
+
+    An application subclass wrapping the route decorators runs its own frames
+    between the declaring module and fastapi-router-variants; they must be
+    skipped like the internal ones to reach the frame applying the decorator.
+    """
+    paths: list[str] = []
+    for cls in router_wrapper_class.__mro__:
+        try:
+            paths.append(os.path.abspath(inspect.getfile(cls)))
+        except TypeError:
+            continue
+    return tuple(paths)
+
+
+def _record_origin(skipped_paths: tuple[str, ...] = ()) -> tuple[str, str] | None:
     """Return ``(module, variable)`` of the router declaring the current route.
 
-    Walks out of the internal frames (this package and fastapi-router-variants)
-    to the user frame that applied the decorator; grabs the ``RouterWrapper``
-    instance from the internal wrapper frame to resolve the variable name.
+    Walks out of the internal frames (this package, fastapi-router-variants and
+    ``skipped_paths``) to the user frame that applied the decorator; grabs the
+    ``RouterWrapper`` instance from an internal frame to resolve the variable
+    name.
     """
     wrapper_instance: object | None = None
+    internal_paths = _INTERNAL_DIRS + skipped_paths
 
     for frame_info in inspect.stack()[1:]:
         path = os.path.abspath(frame_info.filename)
-        if path.startswith(_INTERNAL_DIRS):
+        if path.startswith(internal_paths):
             if wrapper_instance is None:
                 candidate = frame_info.frame.f_locals.get("self")
                 if isinstance(candidate, RouterWrapper):
@@ -87,7 +105,8 @@ def _record_origin() -> tuple[str, str] | None:
 
 
 class _CollectingRecorder(RouteRecorder):
-    def __init__(self) -> None:
+    def __init__(self, skipped_paths: tuple[str, ...] = ()) -> None:
+        self.skipped_paths = skipped_paths
         self.collected: list[ExtractedRouteInfo] = []
 
     def record(
@@ -101,7 +120,7 @@ class _CollectingRecorder(RouteRecorder):
         deployment: str | bool | None,
         hidden: bool,
     ) -> None:
-        origin = _record_origin()
+        origin = _record_origin(self.skipped_paths)
         if origin is None:
             logger.warning(f"Could not resolve router origin for route {path}")
             return
@@ -120,6 +139,33 @@ class _CollectingRecorder(RouteRecorder):
                 hidden=hidden,
             )
         )
+
+
+def record_module_routes(
+    router_wrapper_class: type[RouterWrapper], module_names: list[str]
+) -> list[ExtractedRouteInfo]:
+    """Record the routes of ``module_names`` within a single recording context.
+
+    Only the router modules themselves are re-imported: the modules they depend
+    on stay imported from one router module to the next, so their import-time
+    side effects run once. Meant for a fresh interpreter (the sandbox child),
+    as every imported module is left in ``sys.modules``.
+    """
+    recorder = _CollectingRecorder(_router_wrapper_paths(router_wrapper_class))
+    route_infos: list[ExtractedRouteInfo] = []
+
+    with router_wrapper_class.recording(recorder):
+        for module_name in module_names:
+            start = len(recorder.collected)
+            sys.modules.pop(module_name, None)
+            importlib.import_module(module_name)
+            route_infos.extend(
+                route_info
+                for route_info in recorder.collected[start:]
+                if route_info.router_module == module_name
+            )
+
+    return route_infos
 
 
 class RecordingRouteInfosExtractor(AbstractRouteInfosExtractor, InitializableExtractor):
@@ -157,7 +203,7 @@ class RecordingRouteInfosExtractor(AbstractRouteInfosExtractor, InitializableExt
                 self.modules[module_name] = self._extract(module_name)
 
     def _extract(self, module_name: str) -> list[ExtractedRouteInfo]:
-        recorder = _CollectingRecorder()
+        recorder = _CollectingRecorder(_router_wrapper_paths(self.router_wrapper_class))
 
         # Import under recording, then restore sys.modules: the recorded import
         # builds no real routes, so any module it (re)loaded must not leak to a
