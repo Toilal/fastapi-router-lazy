@@ -22,7 +22,6 @@ from fastapi_router_lazy.router_loader import LazyRouteRegistry, RouterLoader
 logger = logging.getLogger(__name__)
 
 LAZY_LOADING_ROUTER_HEADER = "x-fastapi-router-lazy-loading-router"
-LAZY_LOADING_ROUTER_HEADER_BYTES = LAZY_LOADING_ROUTER_HEADER.encode("ascii")
 
 # A stub only needs to match so the real router gets mounted; the mounted routes
 # then decide the real method semantics (405 included). So methods=None ("any
@@ -104,7 +103,23 @@ class LazyMiddleware(LazyRouteRegistry):
             logger.info(f"Including lazy route stub {route_info}")
 
 
-def factory(router_loader: RouterLoader) -> type[LazyMiddleware]:
+def factory(
+    router_loader: RouterLoader,
+    *,
+    header_name: str = LAZY_LOADING_ROUTER_HEADER,
+    response_header: bool = False,
+) -> type[LazyMiddleware]:
+    """Build the middleware class mounting the routers of ``router_loader``.
+
+    A request that triggers the loading of a router carries the
+    ``<module>:<variable>`` of that router in its ``header_name`` header, so the
+    application can log it. Any header of that name sent by the client is
+    removed from every request beforehand, so the application never reads a
+    value the middleware did not set. ``response_header=True`` also sets it on
+    the HTTP response, which exposes the internal module name to the client.
+    """
+    header_name_bytes = header_name.lower().encode("ascii")
+
     class LazyMiddlewareInstance(LazyMiddleware):
         """ASGI middleware loading router modules on the first matching call."""
 
@@ -114,6 +129,15 @@ def factory(router_loader: RouterLoader) -> type[LazyMiddleware]:
         async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
             if scope["type"] != "http" and scope["type"] != "websocket":
                 return await self.app(scope, receive, send)
+
+            headers = scope.get("headers", [])
+            if any(name == header_name_bytes for name, _ in headers):
+                headers = [
+                    (name, value)
+                    for name, value in headers
+                    if name != header_name_bytes
+                ]
+                scope = {**scope, "headers": headers}
 
             stub_route = self.get_stub_matching_route(scope)
             if isinstance(stub_route, (APIRoute, APIWebSocketRoute)):
@@ -125,17 +149,22 @@ def factory(router_loader: RouterLoader) -> type[LazyMiddleware]:
 
                 self.remove_stub_routes(stub_route_name)
 
-                original_send: Send = send
+                scope = {
+                    **scope,
+                    "headers": [*headers, (header_name_bytes, stub_route_name_bytes)],
+                }
 
-                async def send_override(message: Message) -> None:
-                    if message["type"] == "http.response.start":
-                        headers = message.setdefault("headers", [])
-                        headers.append(
-                            (LAZY_LOADING_ROUTER_HEADER_BYTES, stub_route_name_bytes)
-                        )
-                    await original_send(message)
+                if response_header:
+                    original_send: Send = send
 
-                send = send_override
+                    async def send_override(message: Message) -> None:
+                        if message["type"] == "http.response.start":
+                            message.setdefault("headers", []).append(
+                                (header_name_bytes, stub_route_name_bytes)
+                            )
+                        await original_send(message)
+
+                    send = send_override
 
             return await self.app(scope, receive, send)
 

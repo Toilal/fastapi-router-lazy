@@ -87,6 +87,15 @@ app.add_middleware(middleware)
 loader.load(middleware)
 ```
 
+The request that triggers the loading of a router carries an
+`x-fastapi-router-lazy-loading-router: <module>:<variable>` header, so the
+application can log which request paid for the import (read it with
+`Header(alias=LAZY_LOADING_ROUTER_HEADER)`). The middleware strips any header of
+that name sent by the client, from every request. Pass
+`header_name="x-myapp-loading-router"` to `lazy_middleware_factory` to rename it,
+and `response_header=True` to also set it on the response — off by default, as
+it exposes internal module names to the client.
+
 The default extractor (`route_infos_extractor("myapp")`, no cache) is the
 simplest wiring, but it imports every module at startup to read its routes — it
 mounts on demand without deferring imports. Eager loading, deployment filtering,
