@@ -1,4 +1,7 @@
 import json
+import logging
+import os
+import stat
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -172,6 +175,73 @@ class TestWriteReadCacheFile:
         assert "router_checksums" in parsed
         assert "routes" in parsed
 
+    @pytest.mark.parametrize(
+        "content",
+        [
+            '{"router_checksums": {}, "routes": {"m.router": [{"path": "/x"',
+            '{"router_checksums": {}, "routes": {"m.router": [{"unknown": 1}]}}',
+            "[]",
+            "\udcff",
+        ],
+        ids=["truncated", "unknown-field", "wrong-shape", "not-utf8"],
+    )
+    def test_read_unreadable_returns_empty_with_a_warning(
+        self, tmp_path: Path, content: str, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        cache_file = tmp_path / "routes.json"
+        cache_file.write_bytes(content.encode("utf-8", "surrogateescape"))
+        CachedRouteInfosExtractor.clear_file_cache()
+
+        with caplog.at_level(logging.WARNING):
+            result = CachedRouteInfosExtractor.read_cache_file(cache_file)
+
+        assert result == CachedExtractedRouteInfos({}, {})
+        assert f"Unreadable route infos cache {cache_file}" in caplog.text
+
+    def test_write_swaps_in_a_complete_file(self, tmp_path: Path) -> None:
+        cache_file = tmp_path / "routes.json"
+        replaced: list[tuple[Path, Path]] = []
+        original_replace = os.replace
+
+        def _recording_replace(src: Path, dst: Path) -> None:
+            replaced.append((Path(src), Path(dst)))
+            assert json.loads(Path(src).read_text())["routes"] == {"m.router": []}
+            original_replace(src, dst)
+
+        with patch.object(os, "replace", _recording_replace):
+            CachedRouteInfosExtractor.write_cache_file(
+                CachedExtractedRouteInfos({}, {"m.router": []}), cache_file
+            )
+
+        assert [(src.parent, dst) for src, dst in replaced] == [(tmp_path, cache_file)]
+        assert [p.name for p in tmp_path.iterdir()] == ["routes.json"]
+
+    def test_write_gives_the_umask_derived_mode(self, tmp_path: Path) -> None:
+        cache_file = tmp_path / "routes.json"
+        previous_umask = os.umask(0o027)
+        try:
+            CachedRouteInfosExtractor.write_cache_file(
+                CachedExtractedRouteInfos({}, {}), cache_file
+            )
+        finally:
+            os.umask(previous_umask)
+
+        assert stat.S_IMODE(cache_file.stat().st_mode) == 0o640
+
+    def test_failed_write_keeps_the_previous_file(self, tmp_path: Path) -> None:
+        cache_file = tmp_path / "routes.json"
+        CachedRouteInfosExtractor.write_cache_file(
+            CachedExtractedRouteInfos({}, {"m.router": []}), cache_file
+        )
+        previous = cache_file.read_text()
+        unserializable = CachedExtractedRouteInfos({"m.router": object()}, {})  # type: ignore[dict-item]
+
+        with pytest.raises(TypeError):
+            CachedRouteInfosExtractor.write_cache_file(unserializable, cache_file)
+
+        assert cache_file.read_text() == previous
+        assert [p.name for p in tmp_path.iterdir()] == ["routes.json"]
+
 
 class TestGetInvalidModules:
     @pytest.fixture
@@ -335,3 +405,59 @@ class TestCachedExtractorIntegration:
 
         infos = cached.extract_module_route_infos(f"{package}.users.router")
         assert [i.path for i in infos] == ["/users"]
+
+    def test_corrupted_cache_is_rebuilt(
+        self, make_package: MakePackage, tmp_path: Path
+    ) -> None:
+        package = make_package({"users.router": USERS_ROUTER})
+        cache_file = tmp_path / "routes.json"
+        cache_file.write_text('{"router_checksums": {')
+        CachedRouteInfosExtractor.clear_file_cache()
+
+        inner = PlainRouteInfosExtractor(ExtractorDefaults(), package)
+        cached = CachedRouteInfosExtractor(
+            ExtractorDefaults(), package, cache_file, inner
+        )
+
+        assert set(cached.data.routes) == {f"{package}.users.router"}
+        CachedRouteInfosExtractor.clear_file_cache()
+        reread = CachedRouteInfosExtractor.read_cache_file(cache_file)
+        assert set(reread.routes) == {f"{package}.users.router"}
+
+    def test_router_module_turned_into_a_package_is_dropped(
+        self, make_package: MakePackage, tmp_path: Path
+    ) -> None:
+        package = make_package({"users.router.router": USERS_ROUTER})
+        former, current = f"{package}.users.router", f"{package}.users.router.router"
+        cache_file = tmp_path / "routes.json"
+        CachedRouteInfosExtractor.write_cache_file(
+            CachedExtractedRouteInfos({former: "stale"}, {former: []}), cache_file
+        )
+        CachedRouteInfosExtractor.clear_file_cache()
+
+        inner = PlainRouteInfosExtractor(ExtractorDefaults(), package)
+        cached = CachedRouteInfosExtractor(
+            ExtractorDefaults(), package, cache_file, inner
+        )
+
+        assert set(cached.data.routes) == {current}
+        assert set(cached.data.router_checksums) == {current}
+        with patch.object(
+            CachedRouteInfosExtractor, "write_cache_file_from_extractor"
+        ) as rebuild:
+            CachedRouteInfosExtractor(ExtractorDefaults(), package, cache_file, inner)
+        rebuild.assert_not_called()
+
+    def test_corrupted_cache_still_fails_in_strict_mode(
+        self, make_package: MakePackage, tmp_path: Path
+    ) -> None:
+        package = make_package({"users.router": USERS_ROUTER})
+        cache_file = tmp_path / "routes.json"
+        cache_file.write_text('{"router_checksums": {')
+        CachedRouteInfosExtractor.clear_file_cache()
+
+        inner = PlainRouteInfosExtractor(ExtractorDefaults(), package)
+        with pytest.raises(ValueError, match="Invalid modules detected"):
+            CachedRouteInfosExtractor(
+                ExtractorDefaults(), package, cache_file, inner, strict=True
+            )

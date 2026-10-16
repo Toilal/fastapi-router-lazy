@@ -12,6 +12,7 @@ import hashlib
 import json
 import logging
 import os
+import uuid
 from collections.abc import Iterator
 from importlib.util import find_spec
 from pathlib import Path
@@ -191,7 +192,14 @@ class CachedRouteInfosExtractor(AbstractRouteInfosExtractor):
                     module_spec = find_spec(module_name)
                 except ModuleNotFoundError:
                     module_spec = None
-                if module_spec is None or module_spec.origin is None:
+                # A router module is always a file: a name resolving to a package
+                # is a router.py turned into router/router.py, whose entry would
+                # otherwise stay invalid and be re-extracted on every start.
+                if (
+                    module_spec is None
+                    or module_spec.origin is None
+                    or module_spec.submodule_search_locations is not None
+                ):
                     deleted_module_names.add(module_name)
 
         if data is None:
@@ -221,8 +229,22 @@ class CachedRouteInfosExtractor(AbstractRouteInfosExtractor):
     def write_cache_file(
         cls, data: CachedExtractedRouteInfos, cache_file: Path
     ) -> None:
-        with open(cache_file, "w") as fp:
-            json.dump(data, fp, cls=DataclassEncoder, indent=2)
+        # Several processes may regenerate the same file (pytest-xdist workers,
+        # server workers on a first start): a temporary file of the same
+        # directory swapped in by os.replace never exposes a truncated JSON.
+        # Creating it with os.open rather than mkstemp keeps the umask-derived
+        # mode an in-place write would give, instead of mkstemp's 0600.
+        temporary_file = cache_file.with_name(
+            f".{cache_file.name}.{uuid.uuid4().hex}.tmp"
+        )
+        fd = os.open(temporary_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666)
+        try:
+            with os.fdopen(fd, "w") as fp:
+                json.dump(data, fp, cls=DataclassEncoder, indent=2)
+            os.replace(temporary_file, cache_file)
+        except BaseException:
+            temporary_file.unlink(missing_ok=True)
+            raise
         stat = os.stat(cache_file)
         cls._cache_file_cache[str(cache_file)] = (stat.st_mtime_ns, stat.st_size, data)
 
@@ -237,11 +259,20 @@ class CachedRouteInfosExtractor(AbstractRouteInfosExtractor):
         if memo is not None and memo[0] == stat.st_mtime_ns and memo[1] == stat.st_size:
             return memo[2]
 
-        with open(cache_file) as fp:
-            data = json.load(
-                fp, object_hook=lambda d: dataclass_decoder(d, ExtractedRouteInfo)
+        try:
+            with open(cache_file) as fp:
+                data = json.load(
+                    fp, object_hook=lambda d: dataclass_decoder(d, ExtractedRouteInfo)
+                )
+            parsed = CachedExtractedRouteInfos(**data)
+        except (ValueError, TypeError) as exc:
+            # A file left truncated by a killed writer, or shaped by an
+            # incompatible version, must not fail every start: read as empty,
+            # it is rebuilt, and strict mode still fails on the invalid modules.
+            logger.warning(
+                f"Unreadable route infos cache {cache_file}, ignoring it: {exc}"
             )
-        parsed = CachedExtractedRouteInfos(**data)
+            return CachedExtractedRouteInfos({}, {})
         cls._cache_file_cache[str(cache_file)] = (
             stat.st_mtime_ns,
             stat.st_size,
