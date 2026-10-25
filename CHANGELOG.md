@@ -2,6 +2,25 @@
 
 <!-- version list -->
 
+## v0.3.0 (2026-10-25)
+
+### Bug Fixes
+
+- **cached-extractor**: Write the route infos cache atomically and survive a corrupted one
+  ([`533ab0b`](https://github.com/Toilal/fastapi-router-lazy/commit/533ab0bbca26af37a1a2cb7376ec62f101baee98))
+
+- **router-loader**: Keep the streamed item type and deduplicate tags on flattened routes
+  ([`5387fa4`](https://github.com/Toilal/fastapi-router-lazy/commit/5387fa497f3f4aa4b00d94b7c353264ee8cee139))
+
+- **variants**: Extract variant route infos in a subprocess and resolve subclassed routers
+  ([`108336e`](https://github.com/Toilal/fastapi-router-lazy/commit/108336ee935902f74a9975000084f203577efa65))
+
+### Features
+
+- **middleware**: Set the lazy-loading header on the request, with a configurable name
+  ([`98c2a6f`](https://github.com/Toilal/fastapi-router-lazy/commit/98c2a6f75381cfa3db2a62c0f577bc0afd8ff34d))
+
+
 ## v0.2.4 (2026-10-08)
 
 ### Bug Fixes
