@@ -1,7 +1,7 @@
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from importlib.util import find_spec
 from pathlib import Path
 from typing import Protocol
@@ -27,10 +27,27 @@ class ExtractorDefaults:
     deployment: str | None = None
 
 
+@dataclass(frozen=True)
+class RouteSources:
+    """Modules a router declares its cached route infos depend on.
+
+    ``error`` says why the declaration is invalid: such a router cannot be
+    trusted from the cache outside strict mode.
+    """
+
+    modules: tuple[str, ...] = ()
+    error: str | None = None
+
+
 @dataclass
 class CachedExtractedRouteInfos:
     router_checksums: dict[str, str]
     routes: dict[str, list[ExtractedRouteInfo]]
+    route_sources: dict[str, RouteSources] = field(default_factory=dict)
+    """Routers declaring route sources."""
+    route_sources_read: bool = False
+    """False for a cache written before route sources existed: which of its
+    routers declare some is unknown."""
 
 
 class InitializableExtractor(ABC):

@@ -12,10 +12,13 @@ from fastapi_router_lazy.extractors.abc import (
     ExtractorDefaults,
     ExtractorDefaultsProtocol,
     InitializableExtractor,
+    RouteSources,
 )
 from fastapi_router_lazy.extractors.cached_extractor import (
     CachedRouteInfosExtractor,
+    RouteInfosCacheMismatch,
     module_checksum,
+    verify_route_infos_cache,
 )
 from fastapi_router_lazy.extractors.plain import (
     PlainRouteInfosExtractor,
@@ -64,6 +67,8 @@ __all__ = [
     "MetaRouteInfo",
     "PlainRouteInfosExtractor",
     "RouteInfo",
+    "RouteInfosCacheMismatch",
+    "RouteSources",
     "RouteType",
     "RouterLoader",
     "RouterLoaderMeta",
@@ -76,4 +81,5 @@ __all__ = [
     "module_checksum",
     "reparent_route",
     "route_infos_extractor",
+    "verify_route_infos_cache",
 ]

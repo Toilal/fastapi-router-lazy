@@ -1,7 +1,10 @@
+import ast
+import importlib
 import json
 import logging
 import os
 import stat
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -14,10 +17,14 @@ from fastapi_router_lazy import (
     ExtractedRouteInfo,
     ExtractorDefaults,
     PlainRouteInfosExtractor,
+    RouteInfosCacheMismatch,
+    RouteSources,
     module_checksum,
+    verify_route_infos_cache,
 )
 from fastapi_router_lazy.extractors.abc import AbstractRouteInfosExtractor
 from fastapi_router_lazy.extractors.cached_extractor import DataclassEncoder
+from fastapi_router_lazy.extractors.route_sources import module_file
 
 REAL_MODULE = "fastapi_router_lazy.route_info"
 OTHER_MODULE = "fastapi_router_lazy.router_loader"
@@ -121,6 +128,56 @@ class TestWriteReadCacheFile:
         assert back.methods is None
         assert back == route_info
 
+    def test_roundtrip_preserves_route_sources(self, tmp_path: Path) -> None:
+        data = CachedExtractedRouteInfos(
+            router_checksums={"app.items.router": "abc123"},
+            routes={"app.items.router": []},
+            route_sources={
+                "app.items.router": RouteSources(("app.items.meta",)),
+                "app.users.router": RouteSources(
+                    (), "declared route sources not found"
+                ),
+            },
+            route_sources_read=True,
+        )
+        cache_file = tmp_path / "routes.json"
+
+        CachedRouteInfosExtractor.clear_file_cache()
+        CachedRouteInfosExtractor.write_cache_file(data, cache_file)
+        CachedRouteInfosExtractor.clear_file_cache()
+
+        assert CachedRouteInfosExtractor.read_cache_file(cache_file) == data
+
+    def test_reads_a_cache_without_route_sources(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        cache_file = tmp_path / "routes.json"
+        cache_file.write_text(
+            json.dumps(
+                {
+                    "router_checksums": {"m.router": "abc"},
+                    "routes": {
+                        "m.router": [
+                            {
+                                "path": "/x",
+                                "router_variable": "router",
+                                "router_module": "m.router",
+                            }
+                        ]
+                    },
+                }
+            )
+        )
+        CachedRouteInfosExtractor.clear_file_cache()
+
+        with caplog.at_level(logging.WARNING):
+            result = CachedRouteInfosExtractor.read_cache_file(cache_file)
+
+        assert result.route_sources == {}
+        assert not result.route_sources_read
+        assert [r.path for r in result.routes["m.router"]] == ["/x"]
+        assert caplog.text == ""
+
     def test_read_missing_returns_empty(self, tmp_path: Path) -> None:
         CachedRouteInfosExtractor.clear_file_cache()
         result = CachedRouteInfosExtractor.read_cache_file(tmp_path / "missing.json")
@@ -181,9 +238,18 @@ class TestWriteReadCacheFile:
             '{"router_checksums": {}, "routes": {"m.router": [{"path": "/x"',
             '{"router_checksums": {}, "routes": {"m.router": [{"unknown": 1}]}}',
             "[]",
+            '{"routes": {}}',
+            '{"router_checksums": {}, "routes": {}, "route_sources": {"m": 1}}',
             "\udcff",
         ],
-        ids=["truncated", "unknown-field", "wrong-shape", "not-utf8"],
+        ids=[
+            "truncated",
+            "unknown-field",
+            "wrong-shape",
+            "missing-key",
+            "wrong-route-sources",
+            "not-utf8",
+        ],
     )
     def test_read_unreadable_returns_empty_with_a_warning(
         self, tmp_path: Path, content: str, caplog: pytest.LogCaptureFixture
@@ -251,6 +317,7 @@ class TestGetInvalidModules:
     def _cached(self, data: CachedExtractedRouteInfos) -> CachedRouteInfosExtractor:
         cached = CachedRouteInfosExtractor.__new__(CachedRouteInfosExtractor)
         cached.package_name = "fastapi_router_lazy"
+        data.route_sources_read = True
         cached.data = data
         return cached
 
@@ -315,7 +382,9 @@ class TestCachedExtractorInit:
         self, mock_read: MagicMock, mock_invalid: MagicMock
     ) -> None:
         cached_data = CachedExtractedRouteInfos(
-            router_checksums={"mod.router": "abc"}, routes={"mod.router": []}
+            router_checksums={"mod.router": "abc"},
+            routes={"mod.router": []},
+            route_sources_read=True,
         )
         mock_read.return_value = cached_data
         mock_invalid.return_value = set()
@@ -461,3 +530,324 @@ class TestCachedExtractorIntegration:
             CachedRouteInfosExtractor(
                 ExtractorDefaults(), package, cache_file, inner, strict=True
             )
+
+
+META = """
+SUFFIXES = ("a", "b")
+"""
+
+META_CHANGED = """
+SUFFIXES = ("a", "b", "c-added")
+"""
+
+DECLARED_ROUTER = """
+from fastapi import APIRouter
+
+from .meta import SUFFIXES
+
+__route_sources__ = ("{package}.config.meta",)
+
+router = APIRouter()
+
+for suffix in SUFFIXES:
+    router.get(f"/config/{{suffix}}")(lambda: None)
+"""
+
+INVALID_ROUTER = """
+from fastapi import APIRouter
+
+from .meta import SUFFIXES
+
+__route_sources__ = ("nowhere.at_all",)
+
+router = APIRouter()
+
+for suffix in SUFFIXES:
+    router.get(f"/config/{suffix}")(lambda: None)
+"""
+
+
+def _restart(package: str) -> None:
+    """Forget what a previous start imported, as a new process would."""
+    for name in list(sys.modules):
+        if name == package or name.startswith(f"{package}."):
+            del sys.modules[name]
+    importlib.invalidate_caches()
+    CachedRouteInfosExtractor.clear_file_cache()
+
+
+def _rewrite(module: str, source: str) -> None:
+    path = module_file(module)
+    assert path is not None
+    path.write_text(source)
+
+
+def _paths(cached: CachedRouteInfosExtractor, module: str) -> list[str]:
+    return sorted(route.path for route in cached.extract_module_route_infos(module))
+
+
+def _declared_package(make_package: MakePackage) -> str:
+    package = make_package({"config.meta": META, "config.router": ""})
+    _rewrite(f"{package}.config.router", DECLARED_ROUTER.format(package=package))
+    return package
+
+
+def _cached(
+    package: str, cache_file: Path, *, strict: bool = False
+) -> CachedRouteInfosExtractor:
+    _restart(package)
+    inner = PlainRouteInfosExtractor(ExtractorDefaults(), package)
+    return CachedRouteInfosExtractor(
+        ExtractorDefaults(), package, cache_file, inner, strict=strict
+    )
+
+
+class TestRouteSourcesInTheCache:
+    def test_a_literal_router_keeps_its_own_checksum(
+        self, make_package: MakePackage, tmp_path: Path
+    ) -> None:
+        package = make_package({"users.router": USERS_ROUTER})
+
+        cached = _cached(package, tmp_path / "routes.json")
+
+        router = f"{package}.users.router"
+        assert cached.data.router_checksums == {router: module_checksum(router)}
+        assert cached.data.route_sources == {}
+
+    @staticmethod
+    def _write_previous_format_cache(
+        cache_file: Path, router: str, paths: list[str]
+    ) -> None:
+        cache_file.write_text(
+            json.dumps(
+                {
+                    "router_checksums": {router: module_checksum(router)},
+                    "routes": {
+                        router: [
+                            {
+                                "path": path,
+                                "methods": ["GET"],
+                                "router_variable": "router",
+                                "router_module": router,
+                            }
+                            for path in paths
+                        ]
+                    },
+                }
+            )
+        )
+
+    def test_a_previous_format_cache_stays_valid_for_literal_routers(
+        self, make_package: MakePackage, tmp_path: Path
+    ) -> None:
+        package = make_package({"users.router": USERS_ROUTER})
+        router = f"{package}.users.router"
+        cache_file = tmp_path / "routes.json"
+        self._write_previous_format_cache(cache_file, router, ["/users"])
+
+        with patch.object(
+            PlainRouteInfosExtractor, "extract_module_route_infos"
+        ) as extract:
+            cached = _cached(package, cache_file)
+
+        extract.assert_not_called()
+        assert cached.data.route_sources_read
+        _restart(package)
+        assert CachedRouteInfosExtractor.read_cache_file(cache_file).route_sources_read
+
+    def test_a_declaring_router_of_a_previous_format_cache_is_re_extracted(
+        self, make_package: MakePackage, tmp_path: Path
+    ) -> None:
+        package = _declared_package(make_package)
+        router = f"{package}.config.router"
+        cache_file = tmp_path / "routes.json"
+        self._write_previous_format_cache(cache_file, router, ["/old"])
+
+        cached = _cached(package, cache_file)
+
+        assert _paths(cached, router) == ["/config/a", "/config/b"]
+        assert cached.data.route_sources[router] == RouteSources(
+            (f"{package}.config.meta",)
+        )
+
+    def test_an_up_to_date_cache_is_validated_without_parsing(
+        self, make_package: MakePackage, tmp_path: Path
+    ) -> None:
+        package = _declared_package(make_package)
+        cache_file = tmp_path / "routes.json"
+        _cached(package, cache_file)
+
+        with patch.object(ast, "parse") as parse:
+            _cached(package, cache_file)
+
+        parse.assert_not_called()
+
+    def test_changing_a_declared_module_re_extracts_the_router(
+        self, make_package: MakePackage, tmp_path: Path
+    ) -> None:
+        package = _declared_package(make_package)
+        router = f"{package}.config.router"
+        cache_file = tmp_path / "routes.json"
+        assert _paths(_cached(package, cache_file), router) == [
+            "/config/a",
+            "/config/b",
+        ]
+
+        _rewrite(f"{package}.config.meta", META_CHANGED)
+        cached = _cached(package, cache_file)
+
+        assert _paths(cached, router) == ["/config/a", "/config/b", "/config/c-added"]
+
+    def test_an_invalid_declaration_re_extracts_the_router_on_every_start(
+        self,
+        make_package: MakePackage,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        package = make_package({"config.meta": META, "config.router": INVALID_ROUTER})
+        router = f"{package}.config.router"
+        cache_file = tmp_path / "routes.json"
+        _cached(package, cache_file)
+
+        _rewrite(f"{package}.config.meta", META_CHANGED)
+        with caplog.at_level(logging.WARNING):
+            cached = _cached(package, cache_file)
+
+        assert _paths(cached, router) == ["/config/a", "/config/b", "/config/c-added"]
+        assert (
+            f"{router}: declared route sources not found: nowhere.at_all" in caplog.text
+        )
+
+    def test_strict_mode_trusts_an_invalid_declaration_built_from_the_same_sources(
+        self, make_package: MakePackage, tmp_path: Path
+    ) -> None:
+        package = make_package({"config.meta": META, "config.router": INVALID_ROUTER})
+        router = f"{package}.config.router"
+        cache_file = tmp_path / "routes.json"
+        _cached(package, cache_file)
+
+        cached = _cached(package, cache_file, strict=True)
+
+        assert _paths(cached, router) == ["/config/a", "/config/b"]
+
+    @pytest.mark.parametrize(
+        ("declaration", "error"),
+        [
+            ("__route_sources__ = 42", "must be a tuple or list of module names"),
+            (
+                '__route_sources__ = ("nowhere.at_all",)',
+                "declared route sources not found: nowhere.at_all",
+            ),
+        ],
+        ids=["malformed", "missing-module"],
+    )
+    def test_an_invalid_declaration_is_reported_from_the_first_build(
+        self,
+        make_package: MakePackage,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+        declaration: str,
+        error: str,
+    ) -> None:
+        router_source = INVALID_ROUTER.replace(
+            '__route_sources__ = ("nowhere.at_all",)', declaration
+        )
+        package = make_package({"config.meta": META, "config.router": router_source})
+        router = f"{package}.config.router"
+        cache_file = tmp_path / "routes.json"
+
+        with caplog.at_level(logging.WARNING):
+            _cached(package, cache_file)
+        assert f"{router}: " in caplog.text
+        assert error in caplog.text
+
+        caplog.clear()
+        with caplog.at_level(logging.WARNING):
+            _cached(package, cache_file, strict=True)
+        assert error in caplog.text
+
+    def test_strict_mode_fails_on_a_changed_declared_module(
+        self, make_package: MakePackage, tmp_path: Path
+    ) -> None:
+        package = _declared_package(make_package)
+        cache_file = tmp_path / "routes.json"
+        _cached(package, cache_file)
+
+        _rewrite(f"{package}.config.meta", META_CHANGED)
+        with pytest.raises(ValueError, match="Invalid modules detected"):
+            _cached(package, cache_file, strict=True)
+
+
+class TestVerifyRouteInfosCache:
+    def test_an_up_to_date_cache_has_no_mismatch(
+        self, make_package: MakePackage, tmp_path: Path
+    ) -> None:
+        package = _declared_package(make_package)
+        cached = _cached(package, tmp_path / "routes.json")
+
+        assert verify_route_infos_cache(cached) == []
+
+    def test_a_stale_entry_is_reported_with_its_differences(
+        self, make_package: MakePackage, tmp_path: Path
+    ) -> None:
+        package = _declared_package(make_package)
+        router = f"{package}.config.router"
+        cached = _cached(package, tmp_path / "routes.json")
+        fresh = list(cached.data.routes[router])
+        stale = ExtractedRouteInfo(
+            path="/config/gone", router_variable="router", router_module=router
+        )
+        cached.data.routes[router] = [fresh[0], stale]
+
+        mismatches = verify_route_infos_cache(cached)
+
+        assert mismatches == [RouteInfosCacheMismatch(router, (fresh[1],), (stale,))]
+
+    def test_reports_a_computed_router_declaring_nothing(
+        self, make_package: MakePackage, tmp_path: Path
+    ) -> None:
+        undeclared = INVALID_ROUTER.replace(
+            '__route_sources__ = ("nowhere.at_all",)', ""
+        )
+        package = make_package({"config.meta": META, "config.router": undeclared})
+        router = f"{package}.config.router"
+        cache_file = tmp_path / "routes.json"
+        _cached(package, cache_file)
+
+        _rewrite(f"{package}.config.meta", META_CHANGED)
+        cached = _cached(package, cache_file)
+
+        assert _paths(cached, router) == ["/config/a", "/config/b"]
+        assert verify_route_infos_cache(cached) == []
+        mismatches = verify_route_infos_cache(cached, [router])
+        assert [route.path for m in mismatches for route in m.missing] == [
+            "/config/c-added"
+        ]
+
+    def test_finds_the_routers_of_a_previous_format_cache_in_strict_mode(
+        self, make_package: MakePackage, tmp_path: Path
+    ) -> None:
+        package = make_package({"config.meta": META, "config.router": INVALID_ROUTER})
+        router = f"{package}.config.router"
+        cache_file = tmp_path / "routes.json"
+        TestRouteSourcesInTheCache._write_previous_format_cache(
+            cache_file, router, ["/config/old"]
+        )
+
+        cached = _cached(package, cache_file, strict=True)
+
+        assert [m.module for m in verify_route_infos_cache(cached)] == [router]
+
+    def test_defaults_to_the_routers_with_route_sources(
+        self, make_package: MakePackage, tmp_path: Path
+    ) -> None:
+        package = make_package(
+            {"config.meta": META, "config.router": "", "users.router": USERS_ROUTER}
+        )
+        _rewrite(f"{package}.config.router", DECLARED_ROUTER.format(package=package))
+        users = f"{package}.users.router"
+        cached = _cached(package, tmp_path / "routes.json")
+        cached.data.routes[users] = []
+
+        assert verify_route_infos_cache(cached) == []
+        assert [m.module for m in verify_route_infos_cache(cached, [users])] == [users]

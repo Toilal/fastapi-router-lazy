@@ -293,7 +293,22 @@ module_checksum(
 ) -> str
 ```
 
-Hash of a module's source file — the key a cache entry is stored under.
+Hash of a module's source file — the key a cache entry is stored under when
+its router declares no `__route_sources__`.
+
+### `verify_route_infos_cache`
+
+```python
+verify_route_infos_cache(
+    extractor: CachedRouteInfosExtractor,
+    module_names: Iterable[str] | None = None,
+) -> list[RouteInfosCacheMismatch]
+```
+
+Extracts `module_names` again with the wrapped extractor and compares the result
+with the cache; an empty list means the cache is up to date for those modules.
+`module_names` defaults to the routers declaring route sources: pass every
+router module to also catch a router that should declare some and does not.
 
 ### `RecordingRouteInfosExtractor` (`variants` extra)
 
@@ -363,9 +378,40 @@ every scanned module up front, `reset(module_names=None)` drops cached state.
 class CachedExtractedRouteInfos:
     router_checksums: dict[str, str]
     routes: dict[str, list[ExtractedRouteInfo]]
+    route_sources: dict[str, RouteSources] = field(default_factory=dict)
+    route_sources_read: bool = False
 ```
 
-The on-disk cache payload: per-module source checksums and the extracted routes.
+The on-disk cache payload: per-module source checksums, the extracted routes,
+and the route sources of the routers declaring some. `route_sources_read` is
+false for a cache written before route sources existed.
+
+### `RouteSources`
+
+```python
+@dataclass(frozen=True)
+class RouteSources:
+    modules: tuple[str, ...] = ()
+    error: str | None = None
+```
+
+The modules a router declares in `__route_sources__`. `error` says why the
+declaration is invalid: such a router is re-extracted on every start outside
+strict mode.
+
+### `RouteInfosCacheMismatch`
+
+```python
+@dataclass(frozen=True)
+class RouteInfosCacheMismatch:
+    module: str
+    missing: tuple[ExtractedRouteInfo, ...]
+    unexpected: tuple[ExtractedRouteInfo, ...]
+```
+
+Returned by `verify_route_infos_cache`: the route infos a fresh extraction of
+`module` finds and the cache lacks (`missing`), and those the cache holds and a
+fresh extraction does not (`unexpected`).
 
 ### `__version__`
 

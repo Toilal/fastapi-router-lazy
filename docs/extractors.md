@@ -114,6 +114,47 @@ missing or stale cache raises instead of silently re-extracting. The module-leve
 helper `module_checksum(module_name)` computes the checksum a cache entry is
 keyed on.
 
+#### Routers computing their routes
+
+The cache checksums each router file. A router that computes its routes from
+data declared elsewhere — a loop over an imported constant, a registry filled
+by other modules, enum values — must list those modules in a module-level
+`__route_sources__`, so that changing any of them re-extracts the router:
+
+```python
+from fastapi import APIRouter
+
+__route_sources__ = ("myapp.config.meta", "myapp.dal.ids")
+
+router = APIRouter()
+```
+
+The cache reads the declaration from the source, without importing the router.
+A declaration that is not a tuple or list of module names, or that names a
+module that cannot be found, is reported by a warning and its router is
+re-extracted on every start (outside strict mode).
+
+The declaration is the developer's responsibility: nothing detects a router
+that should declare route sources and does not. `verify_route_infos_cache`
+extracts routers again and returns the routes on which the cache disagrees;
+run it in a test suite, on every router module, to catch a missing or
+incomplete declaration:
+
+```python
+from fastapi_router_lazy import (
+    CachedRouteInfosExtractor,
+    route_infos_extractor,
+    verify_route_infos_cache,
+)
+
+
+def test_route_infos_cache_is_up_to_date() -> None:
+    extractor = route_infos_extractor("myapp", cache=True)
+    assert isinstance(extractor, CachedRouteInfosExtractor)
+    modules = list(extractor.scan_router_modules())
+    assert verify_route_infos_cache(extractor, modules) == []
+```
+
 ### Variant/version-aware (`[variants]`)
 
 With [`fastapi-router-variants`](https://github.com/Toilal/fastapi-router-variants),
