@@ -166,7 +166,7 @@ A preview of the in-development `develop` branch is published at
 
 ## Requirements
 
-Python 3.12+ and FastAPI.
+Python 3.11+ and FastAPI.
 
 ## License
 
