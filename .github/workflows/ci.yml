@@ -102,7 +102,9 @@ jobs:
           - "0.138.0"   # first release with APIRouter.frontend
           - "0.139.0"
           - "0.140.0"
-          - "0.142.2"   # latest
+          - "0.141.0"
+          - "0.142.2"
+          - "0.143.1"   # latest
 
     steps:
       - uses: actions/checkout@v7
