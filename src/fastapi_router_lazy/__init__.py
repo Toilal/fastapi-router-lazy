@@ -50,7 +50,7 @@ from fastapi_router_lazy.router_loader import (
     reparent_route,
 )
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 __all__ = [
     "LAZY_LOADING_ROUTER_HEADER",

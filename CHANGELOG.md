@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.4.0 (2026-11-01)
+
+### Features
+
+- **cached-extractor**: Checksum routers with their declared route sources
+  ([`dd2013b`](https://github.com/Toilal/fastapi-router-lazy/commit/dd2013bda03084a21e12430692825daf440a1ab8))
+
+
 ## v0.3.0 (2026-10-25)
 
 ### Bug Fixes
