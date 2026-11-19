@@ -162,6 +162,35 @@ subclass — use it in place of `RouterLoader` when your routers are wrappers. T
 core package never imports `fastapi_router_variants`, so plain-FastAPI projects
 pay nothing for the integration.
 
+Route order
+-----------
+
+Router modules are mounted in module name order, then router variable order
+within a module, the way a hand-written list of `include_router` calls sorted
+by name would mount them. A router mounted lazily is inserted at that position
+among the routers already mounted, whatever the order of the requests that
+loaded them, so a request that fully matches a route resolves to the same route
+in lazy and eager mode, as long as every router is mounted by `load()` or by a
+request. A router mounted from an explicit list keeps the place that list gives
+it in both modes, so an application mixing explicit lists with the canonical
+order can resolve a request differently in each mode.
+Within a router, routes keep their declaration order. Routes declared directly
+on the application are left where they are, and routers mounted from an explicit
+list (`load_routers`, `load_router_decls`) keep the order of that list.
+
+For the same route to win in lazy and eager mode, declare routes directly on
+the application before calling `load()` in either mode. If a direct route is
+declared after `load()`, it can take precedence over a matching router route
+in lazy mode while following that router route in eager mode. A router loaded
+lazily is placed among the routers already loaded, regardless of routes declared
+on the application in between: a route declared after a lazy load can be
+shadowed by a router loaded later that matches the same request.
+
+When two routes from different modules are mounted in canonical order and both
+fully match the request, such as `/items/{item_id}` and `/items/special` for
+`/items/special`, the route from the module whose name sorts first takes
+precedence over the other.
+
 Limitations
 -----------
 
@@ -177,8 +206,9 @@ mind:
   loader; there is no `prefix=` applied at mount time. Bake any prefix into the
   router itself (`APIRouter(prefix=...)`).
 - **Stub match order.** A stub and a real route can share a path; Starlette
-  resolves the ambiguity by match order. Avoid overlapping a lazy stub with an
-  already-mounted route on the same path and method.
+  resolves the ambiguity by match order. Routers follow the
+  [route order](#route-order) whatever the order of the requests that load
+  them.
 - **Concurrency at first request.** Mounting happens on the first matching
   request. If several requests for the same not-yet-mounted route arrive
   concurrently, they may each drive a mount; the loader is not designed for

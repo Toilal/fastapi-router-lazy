@@ -2,7 +2,8 @@ import importlib
 import inspect
 import logging
 from abc import ABC, abstractmethod
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
+from contextlib import contextmanager
 from copy import copy
 from dataclasses import dataclass
 from typing import Any, cast, overload
@@ -173,6 +174,7 @@ class RouterLoaderMeta:
 
 
 RouterDecl = str | tuple[str, set[str] | None]
+RouterKey = tuple[str, str]
 
 
 class LazyRouteRegistry(ABC):
@@ -204,6 +206,8 @@ class RouterLoader:
         self.extractor = extractor
         self.app = app
         self.deployments = deployments
+        self._lazily_requested_router: RouterKey | None = None
+        self._mounted_blocks: list[tuple[RouterKey, list[BaseRoute]]] = []
 
     def filter_with_deployments(
         self, route_infos: list[ExtractedRouteInfo]
@@ -243,6 +247,62 @@ class RouterLoader:
 
         return list(flattened)
 
+    def _move_to_canonical_position(
+        self, key: RouterKey, routes: list[BaseRoute]
+    ) -> None:
+        """Move freshly appended ``routes`` before those of greater routers.
+
+        Routers of the module requested by ``load_router_lazily`` are ordered
+        by module name, then router variable, so routes resolve the same way
+        whatever the order in which requests load them. Routers loaded from an
+        explicit list keep the order of that list. Routes the loader did not
+        mount keep their position.
+        """
+        following_routes = {
+            id(route)
+            for block_key, block_routes in self._mounted_blocks
+            if block_key > key
+            for route in block_routes
+        }
+        self._mounted_blocks.append((key, routes))
+
+        if self.app is None or not routes or not following_routes:
+            return
+
+        app_routes = self.app.routes
+        block_routes = {id(route) for route in routes}
+        mounted_block = [route for route in app_routes if id(route) in block_routes]
+        other_routes = [route for route in app_routes if id(route) not in block_routes]
+        position = next(
+            (
+                index
+                for index, route in enumerate(other_routes)
+                if id(route) in following_routes
+            ),
+            None,
+        )
+        if position is None:
+            return
+        other_routes[position:position] = mounted_block
+        app_routes[:] = other_routes
+
+    def load_router_lazily(
+        self, module_name: str, router_variable: str
+    ) -> list[LoadedRouter]:
+        """Load a router on its first request, at its canonical position.
+
+        Goes through ``load_router``, so subclasses overriding it still see
+        every load. Only the first ``load_router`` call mounting this module
+        and router variable places it: other routers an override loads
+        meanwhile keep the order of their own call.
+        """
+        enclosing_request = self._lazily_requested_router
+        self._lazily_requested_router = (module_name, router_variable)
+        try:
+            return self.load_router(module_name, router_variable)
+        finally:
+            self._lazily_requested_router = enclosing_request
+
     def load_router(
         self, module_name: str, variables: str | set[str] | None = None
     ) -> list[LoadedRouter]:
@@ -269,9 +329,18 @@ class RouterLoader:
             logger.warning(f"Module {module_name} not found.")
             return []
 
+        canonically_placed_router = self._lazily_requested_router
+        if canonically_placed_router is not None and (
+            canonically_placed_router[0] == module_name
+            and canonically_placed_router[1] in router_variables
+        ):
+            self._lazily_requested_router = None
+        else:
+            canonically_placed_router = None
+
         routers: list[LoadedRouter] = []
 
-        for router_variable in router_variables:
+        for router_variable in sorted(router_variables):
             imported_router = getattr(imported_module, router_variable, None)
             if imported_router is None:
                 logger.warning(
@@ -279,9 +348,12 @@ class RouterLoader:
                     f"in module {module_name}."
                 )
                 continue
-            routers.append(
-                self._load_one(imported_router, module_name, router_variable)
-            )
+            loaded = self._load_one(imported_router, module_name, router_variable)
+            if canonically_placed_router == (module_name, router_variable):
+                self._move_to_canonical_position(
+                    canonically_placed_router, loaded.routes
+                )
+            routers.append(loaded)
 
         return routers
 
@@ -303,27 +375,40 @@ class RouterLoader:
             f"got {type(imported_router).__name__}."
         )
 
+    @contextmanager
+    def _in_explicit_order(self) -> Iterator[None]:
+        """Keep a pending lazy request out of explicitly ordered loads."""
+        lazily_requested_router = self._lazily_requested_router
+        self._lazily_requested_router = None
+        try:
+            yield
+        finally:
+            self._lazily_requested_router = lazily_requested_router
+
     def load_routers(self, module_names: Iterable[str]) -> list[LoadedRouter]:
         loaded_routers: list[LoadedRouter] = []
 
-        for module_name in module_names:
-            loaded_routers.extend(self.load_router(module_name))
+        with self._in_explicit_order():
+            for module_name in module_names:
+                loaded_routers.extend(self.load_router(module_name))
 
         return loaded_routers
 
     def load_router_decl(self, router_decl: RouterDecl) -> list[LoadedRouter]:
-        if isinstance(router_decl, str):
-            return self.load_router(router_decl)
-        module_name, router_variable = router_decl
-        return self.load_router(module_name, router_variable)
+        with self._in_explicit_order():
+            if isinstance(router_decl, str):
+                return self.load_router(router_decl)
+            module_name, router_variable = router_decl
+            return self.load_router(module_name, router_variable)
 
     def load_router_decls(
         self, router_decls: Iterable[RouterDecl]
     ) -> list[LoadedRouter]:
         loaded_routers: list[LoadedRouter] = []
 
-        for router_decl in router_decls:
-            loaded_routers.extend(self.load_router_decl(router_decl))
+        with self._in_explicit_order():
+            for router_decl in router_decls:
+                loaded_routers.extend(self.load_router_decl(router_decl))
 
         return loaded_routers
 
@@ -341,7 +426,7 @@ class RouterLoader:
     def load(
         self, lazy_registry: type[LazyRouteRegistry] | None = None
     ) -> list[LoadedRouter] | None:
-        router_modules = tuple(self.extractor.scan_router_modules())
+        router_modules = tuple(sorted(self.extractor.scan_router_modules()))
 
         if lazy_registry is None:
             return self.load_router_decls(router_modules)
@@ -349,6 +434,8 @@ class RouterLoader:
         for router_module in router_modules:
             route_infos = self.extractor.extract_module_route_infos(router_module)
             route_infos = self.filter_with_deployments(route_infos)
-            lazy_registry.register_lazy_routes(route_infos)
+            lazy_registry.register_lazy_routes(
+                sorted(route_infos, key=lambda info: info.router_variable)
+            )
 
         return None

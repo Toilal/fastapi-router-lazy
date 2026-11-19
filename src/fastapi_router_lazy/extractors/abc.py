@@ -80,10 +80,12 @@ class AbstractRouteInfosExtractor(ABC):
 
         root_path = Path(spec.origin).parent
 
-        for path in root_path.rglob(self.router_module_pattern):
-            relative = path.relative_to(root_path)
-            module_parts = [self.package_name, *relative.with_suffix("").parts]
-            yield ".".join(module_parts)
+        yield from sorted(
+            ".".join(
+                [self.package_name, *path.relative_to(root_path).with_suffix("").parts]
+            )
+            for path in root_path.rglob(self.router_module_pattern)
+        )
 
     @abstractmethod
     def extract_module_route_infos(

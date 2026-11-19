@@ -33,6 +33,10 @@ Key methods:
 - `load_router(module_name, variables=None)` — import one module and mount the
   given router variable(s); with `variables=None`, mount every variable the
   extractor reports for that module. Returns `list[LoadedRouter]`.
+- `load_router_lazily(module_name, router_variable)` — `load_router` for one
+  router variable, then move its routes to their [canonical
+  position](usage.md#route-order) among the routers already mounted. The
+  middleware calls it on the first request matching a stub.
 - `load_routers(module_names)` — `load_router` over an iterable of modules.
 - `load_router_decl(router_decl)` / `load_router_decls(router_decls)` — mount
   from declarations, each either a module name or a `(module_name, variables)`

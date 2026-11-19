@@ -221,7 +221,7 @@ class CachedRouteInfosExtractor(AbstractRouteInfosExtractor):
         return invalid
 
     def scan_router_modules(self) -> Iterator[str]:
-        yield from self.data.routes.keys()
+        yield from sorted(self.data.routes)
 
     def extract_module_route_infos(
         self,

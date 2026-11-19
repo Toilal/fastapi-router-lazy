@@ -145,7 +145,7 @@ def factory(
                 stub_route_name_bytes = stub_route_name.encode("ascii")
 
                 module_name, router_variable = stub_route_name.split(":")
-                router_loader.load_router(module_name, router_variable)
+                router_loader.load_router_lazily(module_name, router_variable)
 
                 self.remove_stub_routes(stub_route_name)
 
