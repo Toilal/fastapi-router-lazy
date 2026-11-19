@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v0.5.0 (2026-11-19)
+
+### Bug Fixes
+
+- **router-loader**: Resolve lazily loaded routes in module name order
+  ([`c7681b5`](https://github.com/Toilal/fastapi-router-lazy/commit/c7681b5ba4db12bdad996a01bdffc4e321edd2a1))
+
+### Features
+
+- **router-loader**: Let router modules declare a priority in the route order
+  ([`a0080a9`](https://github.com/Toilal/fastapi-router-lazy/commit/a0080a96a937b4df248d13f6f0f59e6f20a3e0fc))
+
+
 ## v0.4.0 (2026-11-01)
 
 ### Features
