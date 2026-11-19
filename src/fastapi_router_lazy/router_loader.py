@@ -20,6 +20,7 @@ from fastapi.routing import (
 from starlette.routing import BaseRoute
 
 from fastapi_router_lazy.extractors.abc import AbstractRouteInfosExtractor
+from fastapi_router_lazy.extractors.route_sources import read_router_priority
 from fastapi_router_lazy.route_info import ExtractedRouteInfo
 
 logger = logging.getLogger(__name__)
@@ -175,6 +176,7 @@ class RouterLoaderMeta:
 
 RouterDecl = str | tuple[str, set[str] | None]
 RouterKey = tuple[str, str]
+CanonicalKey = tuple[int, str, str]
 
 
 class LazyRouteRegistry(ABC):
@@ -207,7 +209,8 @@ class RouterLoader:
         self.app = app
         self.deployments = deployments
         self._lazily_requested_router: RouterKey | None = None
-        self._mounted_blocks: list[tuple[RouterKey, list[BaseRoute]]] = []
+        self._mounted_blocks: list[tuple[CanonicalKey, list[BaseRoute]]] = []
+        self._router_priorities: dict[str, int] = {}
 
     def filter_with_deployments(
         self, route_infos: list[ExtractedRouteInfo]
@@ -247,14 +250,34 @@ class RouterLoader:
 
         return list(flattened)
 
+    def router_priority(self, module_name: str) -> int:
+        """The ``ROUTER_LAZY_PRIORITY`` ``module_name`` declares, ``0`` without one.
+
+        Read from the extractor when it knows it (the cache), otherwise from
+        the router's source, without importing it.
+        """
+        if module_name not in self._router_priorities:
+            priority = self.extractor.known_router_priority(module_name)
+            if priority is None:
+                declared = read_router_priority(module_name)
+                if declared and declared.error:
+                    logger.warning(f"{declared.error}: priority 0 is used instead.")
+                priority = declared.value if declared else 0
+            self._router_priorities[module_name] = priority
+        return self._router_priorities[module_name]
+
+    def _canonical_key(self, module_name: str, router_variable: str) -> CanonicalKey:
+        return (-self.router_priority(module_name), module_name, router_variable)
+
     def _move_to_canonical_position(
-        self, key: RouterKey, routes: list[BaseRoute]
+        self, key: CanonicalKey, routes: list[BaseRoute]
     ) -> None:
         """Move freshly appended ``routes`` before those of greater routers.
 
         Routers of the module requested by ``load_router_lazily`` are ordered
-        by module name, then router variable, so routes resolve the same way
-        whatever the order in which requests load them. Routers loaded from an
+        by decreasing priority, then module name, then router variable, so
+        routes resolve the same way whatever the order in which requests load
+        them. Routers loaded from an
         explicit list keep the order of that list. Routes the loader did not
         mount keep their position.
         """
@@ -351,7 +374,7 @@ class RouterLoader:
             loaded = self._load_one(imported_router, module_name, router_variable)
             if canonically_placed_router == (module_name, router_variable):
                 self._move_to_canonical_position(
-                    canonically_placed_router, loaded.routes
+                    self._canonical_key(module_name, router_variable), loaded.routes
                 )
             routers.append(loaded)
 
@@ -426,7 +449,15 @@ class RouterLoader:
     def load(
         self, lazy_registry: type[LazyRouteRegistry] | None = None
     ) -> list[LoadedRouter] | None:
-        router_modules = tuple(sorted(self.extractor.scan_router_modules()))
+        router_modules = tuple(
+            sorted(
+                self.extractor.scan_router_modules(),
+                key=lambda module_name: (
+                    -self.router_priority(module_name),
+                    module_name,
+                ),
+            )
+        )
 
         if lazy_registry is None:
             return self.load_router_decls(router_modules)

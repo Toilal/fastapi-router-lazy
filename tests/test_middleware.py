@@ -1,8 +1,10 @@
 import json
+import logging
 import sys
 from collections.abc import Iterator
 from pathlib import Path
 
+import pytest
 from conftest import MakePackage
 from fastapi import FastAPI
 from fastapi.routing import APIRoute
@@ -838,3 +840,180 @@ def test_loaded_routers_are_kept_in_module_name_order(
     paths = [route.path for route in app.routes if isinstance(route, APIRoute)]
     assert paths.index("/own") < paths.index("/a")
     assert [path for path in paths if path in {"/a", "/b", "/c"}] == ["/a", "/b", "/c"]
+
+
+def _with_priority(router_source: str, priority: int) -> str:
+    return f"ROUTER_LAZY_PRIORITY = {priority}\n{router_source}"
+
+
+def _responses_in_both_modes(
+    make_package: MakePackage, modules: dict[str, str], paths: list[str]
+) -> tuple[list[list[str]], list[str]]:
+    package = make_package(modules)
+    lazy = []
+    for ordered_paths in (paths, list(reversed(paths))):
+        app = FastAPI()
+        loader = RouterLoader(
+            PlainRouteInfosExtractor(ExtractorDefaults(), package), app
+        )
+        middleware = lazy_middleware_factory(loader)
+        app.add_middleware(middleware)
+        loader.load(middleware)
+        client = TestClient(app)
+        responses = {path: client.get(path).json() for path in ordered_paths}
+        lazy.append([responses[path] for path in paths])
+
+    eager_app = FastAPI()
+    RouterLoader(
+        PlainRouteInfosExtractor(ExtractorDefaults(), package), eager_app
+    ).load()
+    eager_client = TestClient(eager_app)
+    return lazy, [eager_client.get(path).json() for path in paths]
+
+
+def test_positive_priority_passes_before_a_module_sorting_first(
+    make_package: MakePackage,
+) -> None:
+    lazy, eager = _responses_in_both_modes(
+        make_package,
+        {
+            "a_items.router": _item_router("/items/{item_id}", "item"),
+            "b_special.router": _with_priority(
+                _item_router("/items/special", "special"), 10
+            ),
+        },
+        ["/items/1", "/items/special"],
+    )
+
+    assert lazy == [["item", "special"], ["item", "special"]]
+    assert eager == ["item", "special"]
+
+
+def test_negative_priority_passes_after_modules_without_priority(
+    make_package: MakePackage,
+) -> None:
+    lazy, eager = _responses_in_both_modes(
+        make_package,
+        {
+            "a_items.router": _with_priority(
+                _item_router("/items/{item_id}", "item"), -1
+            ),
+            "b_special.router": _item_router("/items/special", "special"),
+        },
+        ["/items/1", "/items/special"],
+    )
+
+    assert lazy == [["item", "special"], ["item", "special"]]
+    assert eager == ["item", "special"]
+
+
+def test_invalid_priority_is_reported_without_cache(
+    make_package: MakePackage, caplog: pytest.LogCaptureFixture
+) -> None:
+    package = make_package(
+        {"items.router": f'ROUTER_LAZY_PRIORITY = "10"\n{ITEMS_ROUTER}'}
+    )
+    app = FastAPI()
+    loader = RouterLoader(PlainRouteInfosExtractor(ExtractorDefaults(), package), app)
+    middleware = lazy_middleware_factory(loader)
+    app.add_middleware(middleware)
+
+    with caplog.at_level(logging.WARNING):
+        loader.load(middleware)
+
+    assert (
+        f"{package}.items.router: ROUTER_LAZY_PRIORITY must be an integer literal"
+        in caplog.text
+    )
+    assert loader.router_priority(f"{package}.items.router") == 0
+    assert TestClient(app).get("/items").json() == ["book"]
+
+
+def test_strict_mode_orders_routers_from_a_manifest_without_priorities(
+    make_package: MakePackage, tmp_path: Path
+) -> None:
+    package = make_package(
+        {
+            "a_items.router": _item_router("/items/{item_id}", "item"),
+            "b_special.router": _with_priority(
+                _item_router("/items/special", "special"), 10
+            ),
+        }
+    )
+    cache_file = tmp_path / "routes.json"
+    CachedRouteInfosExtractor.clear_file_cache()
+    route_infos_extractor(package, cache=True, cache_file=cache_file)
+    manifest = json.loads(cache_file.read_text())
+    del manifest["router_priorities"]
+    del manifest["router_priorities_read"]
+    cache_file.write_text(json.dumps(manifest))
+    previous_manifest = cache_file.read_text()
+    CachedRouteInfosExtractor.clear_file_cache()
+    for name in list(sys.modules):
+        if name == package or name.startswith(f"{package}."):
+            del sys.modules[name]
+
+    app = FastAPI()
+    loader = RouterLoader(
+        route_infos_extractor(package, cache=True, cache_file=cache_file, strict=True),
+        app,
+    )
+    middleware = lazy_middleware_factory(loader)
+    app.add_middleware(middleware)
+    loader.load(middleware)
+
+    assert cache_file.read_text() == previous_manifest
+    assert f"{package}.a_items.router" not in sys.modules
+    assert f"{package}.b_special.router" not in sys.modules
+    stub_modules = [
+        route.name.split(":")[0]
+        for route in middleware.app_stub.routes
+        if isinstance(route, Route) and ":" in (route.name or "")
+    ]
+    assert stub_modules == [f"{package}.b_special.router", f"{package}.a_items.router"]
+    client = TestClient(app)
+    assert client.get("/items/1").json() == "item"
+    assert client.get("/items/special").json() == "special"
+
+
+def test_cached_priorities_order_the_stubs_without_importing_routers(
+    make_package: MakePackage, tmp_path: Path
+) -> None:
+    package = make_package(
+        {
+            "a_items.router": _item_router("/items/{item_id}", "item"),
+            "b_special.router": _with_priority(
+                _item_router("/items/special", "special"), 10
+            ),
+        }
+    )
+    cache_file = tmp_path / "routes.json"
+    CachedRouteInfosExtractor.clear_file_cache()
+    route_infos_extractor(package, cache=True, cache_file=cache_file)
+    CachedRouteInfosExtractor.clear_file_cache()
+    for name in list(sys.modules):
+        if name == package or name.startswith(f"{package}."):
+            del sys.modules[name]
+
+    app = FastAPI()
+    loader = RouterLoader(
+        route_infos_extractor(package, cache=True, cache_file=cache_file), app
+    )
+    middleware = lazy_middleware_factory(loader)
+    app.add_middleware(middleware)
+    loader.load(middleware)
+
+    assert f"{package}.a_items.router" not in sys.modules
+    assert f"{package}.b_special.router" not in sys.modules
+    stub_modules = [
+        route.name.split(":")[0]
+        for route in middleware.app_stub.routes
+        if isinstance(route, Route) and ":" in (route.name or "")
+    ]
+    assert stub_modules == [f"{package}.b_special.router", f"{package}.a_items.router"]
+
+    client = TestClient(app)
+    assert client.get("/items/1").json() == "item"
+    assert client.get("/items/special").json() == "special"
+    paths = [route.path for route in app.routes if isinstance(route, APIRoute)]
+    assert paths.index("/items/special") < paths.index("/items/{item_id}")

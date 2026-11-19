@@ -39,6 +39,17 @@ class RouteSources:
     error: str | None = None
 
 
+@dataclass(frozen=True)
+class RouterPriority:
+    """Priority a router module declares in the canonical route order.
+
+    ``error`` says why the declaration is invalid; ``value`` is then ``0``.
+    """
+
+    value: int = 0
+    error: str | None = None
+
+
 @dataclass
 class CachedExtractedRouteInfos:
     router_checksums: dict[str, str]
@@ -48,6 +59,11 @@ class CachedExtractedRouteInfos:
     route_sources_read: bool = False
     """False for a cache written before route sources existed: which of its
     routers declare some is unknown."""
+    router_priorities: dict[str, RouterPriority] = field(default_factory=dict)
+    """Routers declaring a priority."""
+    router_priorities_read: bool = False
+    """False for a cache written before router priorities existed: which of its
+    routers declare one is unknown."""
 
 
 class InitializableExtractor(ABC):
@@ -86,6 +102,13 @@ class AbstractRouteInfosExtractor(ABC):
             )
             for path in root_path.rglob(self.router_module_pattern)
         )
+
+    def known_router_priority(self, module_name: str) -> int | None:
+        """The priority of ``module_name`` when the extractor already knows it.
+
+        ``None`` lets the loader read the declaration from the router's source.
+        """
+        return None
 
     @abstractmethod
     def extract_module_route_infos(
