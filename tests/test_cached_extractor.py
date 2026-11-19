@@ -309,6 +309,20 @@ class TestWriteReadCacheFile:
         assert [p.name for p in tmp_path.iterdir()] == ["routes.json"]
 
 
+def test_scan_router_modules_sorts_the_cached_modules() -> None:
+    cached = CachedRouteInfosExtractor.__new__(CachedRouteInfosExtractor)
+    cached.data = CachedExtractedRouteInfos(
+        router_checksums={},
+        routes={"pkg.c.router": [], "pkg.a.router": [], "pkg.b.router": []},
+    )
+
+    assert list(cached.scan_router_modules()) == [
+        "pkg.a.router",
+        "pkg.b.router",
+        "pkg.c.router",
+    ]
+
+
 class TestGetInvalidModules:
     @pytest.fixture
     def mock_defaults(self) -> MagicMock:

@@ -152,7 +152,9 @@ Lazy loading trades some runtime dynamism for startup speed:
   schema up front);
 - no `prefix=` is applied at `include_router` time — bake prefixes into the
   `APIRouter` itself;
-- a stub and a real route sharing a path are resolved by Starlette match order.
+- a stub and a real route sharing a path are resolved by Starlette match order;
+  routers follow a canonical order, by module name, whatever the order of the
+  requests that load them.
 
 See the [Limitations](https://toilal.github.io/fastapi-router-lazy/usage/#limitations)
 section of the docs for details.

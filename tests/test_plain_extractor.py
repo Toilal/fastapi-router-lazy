@@ -81,6 +81,23 @@ class TestScanRouterModules:
         modules = set(extractor.scan_router_modules())
         assert modules == {f"{package}.users.router", f"{package}.items.router"}
 
+    def test_scans_router_modules_in_name_order(
+        self, make_package: MakePackage
+    ) -> None:
+        package = make_package(
+            {
+                "users.router": USERS_ROUTER,
+                "items.router": ITEMS_ROUTER,
+                "accounts.sub.router": USERS_ROUTER,
+            }
+        )
+
+        assert list(_extractor(package).scan_router_modules()) == [
+            f"{package}.accounts.sub.router",
+            f"{package}.items.router",
+            f"{package}.users.router",
+        ]
+
     def test_custom_router_module_pattern(self, make_package: MakePackage) -> None:
         package = make_package({"users.routes": USERS_ROUTER})
         extractor = PlainRouteInfosExtractor(

@@ -1,4 +1,6 @@
+import json
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 
 from conftest import MakePackage
@@ -13,6 +15,7 @@ from fastapi_router_lazy import (
     ExtractedRouteInfo,
     ExtractorDefaults,
     LazyMiddleware,
+    LoadedRouter,
     PlainRouteInfosExtractor,
     RouterLoader,
     lazy_middleware_factory,
@@ -403,3 +406,435 @@ def test_modules_imported_only_on_first_request_with_cache(
 
     assert f"{package}.users.router" in sys.modules
     assert f"{package}.items.router" not in sys.modules
+
+
+def _item_router(path: str, served_by: str) -> str:
+    return f"""
+from fastapi import APIRouter
+
+router = APIRouter()
+
+
+@router.get("{path}")
+def endpoint() -> str:
+    return "{served_by}"
+"""
+
+
+SPECIAL_THEN_PARAMETERIZED_ROUTER = """
+from fastapi import APIRouter
+
+router = APIRouter()
+
+
+@router.get("/items/special")
+def special() -> str:
+    return "special"
+
+
+@router.get("/items/{item_id}")
+def item(item_id: str) -> str:
+    return f"item {item_id}"
+"""
+
+SHADOWING_MODULES = {
+    "a_special.router": _item_router("/items/special", "special"),
+    "b_items.router": _item_router("/items/{item_id}", "item"),
+}
+
+
+def _eager_responses(make_package: MakePackage, paths: list[str]) -> list[str]:
+    package = make_package(SHADOWING_MODULES)
+    app = FastAPI()
+    RouterLoader(PlainRouteInfosExtractor(ExtractorDefaults(), package), app).load()
+    client = TestClient(app)
+    return [client.get(path).json() for path in paths]
+
+
+def test_explicit_router_list_keeps_its_order(make_package: MakePackage) -> None:
+    package = make_package(SHADOWING_MODULES)
+    app = FastAPI()
+    loader = RouterLoader(PlainRouteInfosExtractor(ExtractorDefaults(), package), app)
+
+    loader.load_routers([f"{package}.b_items.router", f"{package}.a_special.router"])
+
+    assert TestClient(app).get("/items/special").json() == "item"
+
+
+def test_explicit_router_list_keeps_its_order_after_lazy_registration(
+    make_package: MakePackage,
+) -> None:
+    package = make_package(SHADOWING_MODULES)
+    explicit_order = [f"{package}.b_items.router", f"{package}.a_special.router"]
+
+    for load in ("load_routers", "load_router_decls"):
+        app = FastAPI()
+        loader = RouterLoader(
+            PlainRouteInfosExtractor(ExtractorDefaults(), package), app
+        )
+        middleware = lazy_middleware_factory(loader)
+        loader.load(middleware)
+
+        getattr(loader, load)(explicit_order)
+
+        paths = [route.path for route in app.routes if isinstance(route, APIRoute)]
+        assert paths.index("/items/{item_id}") < paths.index("/items/special"), load
+
+
+def test_routers_an_override_loads_during_a_lazy_load_keep_their_order(
+    make_package: MakePackage,
+) -> None:
+    package = make_package({**SHADOWING_MODULES, "c.router": _item_router("/c", "c")})
+    explicit_order = [f"{package}.b_items.router", f"{package}.a_special.router"]
+
+    class ExplicitLoadingRouterLoader(RouterLoader):
+        def load_router(
+            self, module_name: str, variables: str | set[str] | None = None
+        ) -> list[LoadedRouter]:
+            if module_name == f"{package}.c.router":
+                self.load_routers(explicit_order)
+            return super().load_router(module_name, variables)
+
+    app = FastAPI()
+    loader = ExplicitLoadingRouterLoader(
+        PlainRouteInfosExtractor(ExtractorDefaults(), package), app
+    )
+    middleware = lazy_middleware_factory(loader)
+    app.add_middleware(middleware)
+    loader.load(middleware)
+
+    assert TestClient(app).get("/c").json() == "c"
+
+    paths = [route.path for route in app.routes if isinstance(route, APIRoute)]
+    assert paths.index("/items/{item_id}") < paths.index("/items/special")
+
+
+def test_explicit_list_answering_a_lazy_request_keeps_its_order(
+    make_package: MakePackage,
+) -> None:
+    package = make_package(SHADOWING_MODULES)
+    special_module = f"{package}.a_special.router"
+    explicit_order = [f"{package}.b_items.router", special_module]
+
+    class ExplicitListRouterLoader(RouterLoader):
+        def load_router(
+            self, module_name: str, variables: str | set[str] | None = None
+        ) -> list[LoadedRouter]:
+            if module_name == special_module and variables is not None:
+                return self.load_routers(explicit_order)
+            return super().load_router(module_name, variables)
+
+    for earlier_requests in ([], ["/items/1"]):
+        app = FastAPI()
+        loader = ExplicitListRouterLoader(
+            PlainRouteInfosExtractor(ExtractorDefaults(), package), app
+        )
+        middleware = lazy_middleware_factory(loader)
+        app.add_middleware(middleware)
+        loader.load(middleware)
+        client = TestClient(app)
+        for path in earlier_requests:
+            client.get(path)
+
+        assert client.get("/items/special").json() == "item", earlier_requests
+
+
+SPECIAL_WITH_HELPER_ROUTER = """
+from fastapi import APIRouter
+
+router = APIRouter()
+helper = APIRouter()
+
+
+@router.get("/items/special")
+def special() -> str:
+    return "special"
+
+
+@helper.get("/helper")
+def helper_endpoint() -> str:
+    return "helper"
+"""
+
+
+def test_override_loading_another_router_of_the_module_first_keeps_placement(
+    make_package: MakePackage,
+) -> None:
+    package = make_package(
+        {
+            "a_special.router": SPECIAL_WITH_HELPER_ROUTER,
+            "b_items.router": SHADOWING_MODULES["b_items.router"],
+        }
+    )
+    special_module = f"{package}.a_special.router"
+
+    class HelperFirstRouterLoader(RouterLoader):
+        def load_router(
+            self, module_name: str, variables: str | set[str] | None = None
+        ) -> list[LoadedRouter]:
+            if module_name == special_module and variables == "router":
+                super().load_router(module_name, "helper")
+            return super().load_router(module_name, variables)
+
+    for earlier_requests in ([], ["/items/1"]):
+        app = FastAPI()
+        loader = HelperFirstRouterLoader(
+            PlainRouteInfosExtractor(ExtractorDefaults(), package), app
+        )
+        middleware = lazy_middleware_factory(loader)
+        app.add_middleware(middleware)
+        loader.load(middleware)
+        client = TestClient(app)
+        for path in earlier_requests:
+            client.get(path)
+
+        assert client.get("/items/special").json() == "special", earlier_requests
+
+
+def test_route_added_by_an_override_after_mounting_is_kept(
+    make_package: MakePackage,
+) -> None:
+    package = make_package(
+        {"a.router": _item_router("/a", "a"), "b.router": _item_router("/b", "b")}
+    )
+
+    class HealthRouteRouterLoader(RouterLoader):
+        def _load_one(
+            self, imported_router: object, module_name: str, router_variable: str
+        ) -> LoadedRouter:
+            loaded = super()._load_one(imported_router, module_name, router_variable)
+            assert self.app is not None
+            self.app.add_api_route(f"/health/{module_name}", lambda: "ok")
+            return loaded
+
+    app = FastAPI()
+    loader = HealthRouteRouterLoader(
+        PlainRouteInfosExtractor(ExtractorDefaults(), package), app
+    )
+    middleware = lazy_middleware_factory(loader)
+    app.add_middleware(middleware)
+    loader.load(middleware)
+    client = TestClient(app)
+
+    client.get("/b")
+    client.get("/a")
+
+    paths = [route.path for route in app.routes if isinstance(route, APIRoute)]
+    assert paths.count("/a") == 1
+    assert paths.index("/a") < paths.index("/b")
+    for module in ("a", "b"):
+        assert client.get(f"/health/{package}.{module}.router").json() == "ok"
+
+
+def test_nested_lazy_load_keeps_the_enclosing_request(
+    make_package: MakePackage,
+) -> None:
+    package = make_package({**SHADOWING_MODULES, "c.router": _item_router("/c", "c")})
+    special_module = f"{package}.a_special.router"
+    c_module = f"{package}.c.router"
+
+    class NestedLazyRouterLoader(RouterLoader):
+        nested_loaded = False
+
+        def load_router(
+            self, module_name: str, variables: str | set[str] | None = None
+        ) -> list[LoadedRouter]:
+            if module_name == special_module and not self.nested_loaded:
+                self.nested_loaded = True
+                self.load_router_lazily(c_module, "router")
+            return super().load_router(module_name, variables)
+
+    for earlier_requests in ([], ["/items/1"]):
+        app = FastAPI()
+        loader = NestedLazyRouterLoader(
+            PlainRouteInfosExtractor(ExtractorDefaults(), package), app
+        )
+        middleware = lazy_middleware_factory(loader)
+        app.add_middleware(middleware)
+        loader.load(middleware)
+        client = TestClient(app)
+        for path in earlier_requests:
+            client.get(path)
+
+        assert client.get("/items/special").json() == "special", earlier_requests
+
+
+class ReverseScanExtractor(PlainRouteInfosExtractor):
+    def scan_router_modules(self) -> Iterator[str]:
+        yield from sorted(super().scan_router_modules(), reverse=True)
+
+
+def test_extractor_scan_order_does_not_change_route_resolution(
+    make_package: MakePackage,
+) -> None:
+    package = make_package(SHADOWING_MODULES)
+
+    lazy_app = FastAPI()
+    lazy_loader = RouterLoader(
+        ReverseScanExtractor(ExtractorDefaults(), package), lazy_app
+    )
+    middleware = lazy_middleware_factory(lazy_loader)
+    lazy_app.add_middleware(middleware)
+    lazy_loader.load(middleware)
+    lazy_client = TestClient(lazy_app)
+    lazy = [lazy_client.get("/items/special").json() for _ in range(2)]
+
+    eager_app = FastAPI()
+    RouterLoader(ReverseScanExtractor(ExtractorDefaults(), package), eager_app).load()
+    eager = TestClient(eager_app).get("/items/special").json()
+
+    assert lazy == ["special", "special"]
+    assert eager == "special"
+
+
+def test_router_loaded_late_is_not_shadowed_by_a_greater_router(
+    make_package: MakePackage,
+) -> None:
+    app, _, _ = _build(make_package, SHADOWING_MODULES)
+    client = TestClient(app)
+
+    assert client.get("/items/1").json() == "item"
+    assert client.get("/items/special").json() == "special"
+
+
+def test_routes_resolve_alike_whatever_the_loading_order(
+    make_package: MakePackage,
+) -> None:
+    app, _, _ = _build(make_package, SHADOWING_MODULES)
+    client = TestClient(app)
+
+    lazy = [client.get("/items/special").json(), client.get("/items/1").json()]
+
+    assert lazy == ["special", "item"]
+    assert lazy == _eager_responses(make_package, ["/items/special", "/items/1"])
+
+
+TWO_VARIABLES_ROUTER = """
+from fastapi import APIRouter
+
+z_router = APIRouter()
+a_router = APIRouter()
+
+
+@z_router.get("/items/{item_id}")
+def item(item_id: str) -> str:
+    return "z_router"
+
+
+@a_router.get("/items/special")
+def special() -> str:
+    return "a_router"
+"""
+
+
+def test_router_variables_of_a_module_resolve_alike_in_both_modes(
+    make_package: MakePackage,
+) -> None:
+    modules = {"items.router": TWO_VARIABLES_ROUTER}
+    app, _, _ = _build(make_package, modules)
+    client = TestClient(app)
+
+    lazy = [client.get("/items/special").json(), client.get("/items/special").json()]
+
+    eager_package = make_package(modules)
+    eager_app = FastAPI()
+    RouterLoader(
+        PlainRouteInfosExtractor(ExtractorDefaults(), eager_package), eager_app
+    ).load()
+    eager = TestClient(eager_app).get("/items/special").json()
+
+    assert lazy == ["a_router", "a_router"]
+    assert eager == "a_router"
+
+
+def test_router_loads_after_a_greater_router_was_removed_from_the_app(
+    make_package: MakePackage,
+) -> None:
+    app, _, _ = _build(
+        make_package,
+        {"a.router": _item_router("/a", "a"), "b.router": _item_router("/b", "b")},
+    )
+    client = TestClient(app)
+    client.get("/b")
+    app.router.routes[:] = [
+        route for route in app.routes if getattr(route, "path", None) != "/b"
+    ]
+
+    assert client.get("/a").json() == "a"
+
+
+def _write_manifest_in_reverse_name_order(cache_file: Path) -> list[str]:
+    manifest = json.loads(cache_file.read_text())
+    for field in ("routes", "router_checksums"):
+        manifest[field] = dict(sorted(manifest[field].items(), reverse=True))
+    cache_file.write_text(json.dumps(manifest, indent=2))
+    return list(manifest["routes"])
+
+
+def test_unsorted_manifest_serves_every_route_in_canonical_order(
+    make_package: MakePackage, tmp_path: Path
+) -> None:
+    package = make_package({**SHADOWING_MODULES, "users.router": USERS_ROUTER})
+    cache_file = tmp_path / "routes.json"
+    CachedRouteInfosExtractor.clear_file_cache()
+    route_infos_extractor(package, cache=True, cache_file=cache_file)
+    manifest_modules = _write_manifest_in_reverse_name_order(cache_file)
+    assert manifest_modules != sorted(manifest_modules)
+
+    for requests in (
+        ["/items/1", "/items/special", "/users"],
+        ["/users", "/items/special", "/items/1"],
+    ):
+        CachedRouteInfosExtractor.clear_file_cache()
+        app = FastAPI()
+        extractor = route_infos_extractor(package, cache=True, cache_file=cache_file)
+        assert isinstance(extractor, CachedRouteInfosExtractor)
+        loader = RouterLoader(extractor, app)
+        middleware = lazy_middleware_factory(loader)
+        app.add_middleware(middleware)
+        loader.load(middleware)
+        client = TestClient(app)
+
+        responses = {path: client.get(path).json() for path in requests}
+
+        assert responses == {
+            "/items/1": "item",
+            "/items/special": "special",
+            "/users": ["alice"],
+        }
+    assert list(json.loads(cache_file.read_text())["routes"]) == manifest_modules
+
+
+def test_declaration_order_within_a_module_is_kept(make_package: MakePackage) -> None:
+    app, _, _ = _build(
+        make_package, {"items.router": SPECIAL_THEN_PARAMETERIZED_ROUTER}
+    )
+    client = TestClient(app)
+
+    assert client.get("/items/1").json() == "item 1"
+    assert client.get("/items/special").json() == "special"
+
+
+def test_loaded_routers_are_kept_in_module_name_order(
+    make_package: MakePackage,
+) -> None:
+    app, _, _ = _build(
+        make_package,
+        {
+            "a.router": _item_router("/a", "a"),
+            "b.router": _item_router("/b", "b"),
+            "c.router": _item_router("/c", "c"),
+        },
+    )
+
+    @app.get("/own")
+    def own() -> str:
+        return "own"
+
+    client = TestClient(app)
+    for path in ("/c", "/a", "/b"):
+        client.get(path)
+
+    paths = [route.path for route in app.routes if isinstance(route, APIRoute)]
+    assert paths.index("/own") < paths.index("/a")
+    assert [path for path in paths if path in {"/a", "/b", "/c"}] == ["/a", "/b", "/c"]
