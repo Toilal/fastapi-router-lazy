@@ -774,6 +774,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#routerpriority" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>RouterPriority</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#routeinfoscachemismatch" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1248,6 +1259,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#routerpriority" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>RouterPriority</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#routeinfoscachemismatch" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1339,6 +1361,10 @@ plain <code>fastapi.APIRouter</code> objects. To mount <code>fastapi-router-vari
 <li><code>load_router(module_name, variables=None)</code> — import one module and mount the
   given router variable(s); with <code>variables=None</code>, mount every variable the
   extractor reports for that module. Returns <code>list[LoadedRouter]</code>.</li>
+<li><code>load_router_lazily(module_name, router_variable)</code> — <code>load_router</code> for one
+  router variable, then move its routes to their <a href="../usage/#route-order">canonical
+  position</a> among the routers already mounted. The
+  middleware calls it on the first request matching a stub.</li>
 <li><code>load_routers(module_names)</code> — <code>load_router</code> over an iterable of modules.</li>
 <li><code>load_router_decl(router_decl)</code> / <code>load_router_decls(router_decls)</code> — mount
   from declarations, each either a module name or a <code>(module_name, variables)</code>
@@ -1583,10 +1609,13 @@ every scanned module up front, <code>reset(module_names=None)</code> drops cache
 </span><span id="__span-22-4"><a id="__codelineno-22-4" name="__codelineno-22-4" href="#__codelineno-22-4"></a>    <span class="n">routes</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="n">ExtractedRouteInfo</span><span class="p">]]</span>
 </span><span id="__span-22-5"><a id="__codelineno-22-5" name="__codelineno-22-5" href="#__codelineno-22-5"></a>    <span class="n">route_sources</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">RouteSources</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">dict</span><span class="p">)</span>
 </span><span id="__span-22-6"><a id="__codelineno-22-6" name="__codelineno-22-6" href="#__codelineno-22-6"></a>    <span class="n">route_sources_read</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+</span><span id="__span-22-7"><a id="__codelineno-22-7" name="__codelineno-22-7" href="#__codelineno-22-7"></a>    <span class="n">router_priorities</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">RouterPriority</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">dict</span><span class="p">)</span>
+</span><span id="__span-22-8"><a id="__codelineno-22-8" name="__codelineno-22-8" href="#__codelineno-22-8"></a>    <span class="n">router_priorities_read</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
 </span></code></pre></div>
 <p>The on-disk cache payload: per-module source checksums, the extracted routes,
-and the route sources of the routers declaring some. <code>route_sources_read</code> is
-false for a cache written before route sources existed.</p>
+the route sources of the routers declaring some, and the priorities of the
+routers declaring one. <code>route_sources_read</code> and <code>router_priorities_read</code> are
+false for a cache written before route sources or router priorities existed.</p>
 <h3 id="routesources"><code>RouteSources</code><a class="headerlink" href="#routesources" title="Permanent link">&para;</a></h3>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 </span><span id="__span-23-2"><a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a><span class="k">class</span><span class="w"> </span><span class="nc">RouteSources</span><span class="p">:</span>
@@ -1596,12 +1625,22 @@ false for a cache written before route sources existed.</p>
 <p>The modules a router declares in <code>__route_sources__</code>. <code>error</code> says why the
 declaration is invalid: such a router is re-extracted on every start outside
 strict mode.</p>
-<h3 id="routeinfoscachemismatch"><code>RouteInfosCacheMismatch</code><a class="headerlink" href="#routeinfoscachemismatch" title="Permanent link">&para;</a></h3>
+<h3 id="routerpriority"><code>RouterPriority</code><a class="headerlink" href="#routerpriority" title="Permanent link">&para;</a></h3>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-</span><span id="__span-24-2"><a id="__codelineno-24-2" name="__codelineno-24-2" href="#__codelineno-24-2"></a><span class="k">class</span><span class="w"> </span><span class="nc">RouteInfosCacheMismatch</span><span class="p">:</span>
-</span><span id="__span-24-3"><a id="__codelineno-24-3" name="__codelineno-24-3" href="#__codelineno-24-3"></a>    <span class="n">module</span><span class="p">:</span> <span class="nb">str</span>
-</span><span id="__span-24-4"><a id="__codelineno-24-4" name="__codelineno-24-4" href="#__codelineno-24-4"></a>    <span class="n">missing</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">ExtractedRouteInfo</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span>
-</span><span id="__span-24-5"><a id="__codelineno-24-5" name="__codelineno-24-5" href="#__codelineno-24-5"></a>    <span class="n">unexpected</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">ExtractedRouteInfo</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span>
+</span><span id="__span-24-2"><a id="__codelineno-24-2" name="__codelineno-24-2" href="#__codelineno-24-2"></a><span class="k">class</span><span class="w"> </span><span class="nc">RouterPriority</span><span class="p">:</span>
+</span><span id="__span-24-3"><a id="__codelineno-24-3" name="__codelineno-24-3" href="#__codelineno-24-3"></a>    <span class="n">value</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>
+</span><span id="__span-24-4"><a id="__codelineno-24-4" name="__codelineno-24-4" href="#__codelineno-24-4"></a>    <span class="n">error</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+</span></code></pre></div>
+<p>The <code>ROUTER_LAZY_PRIORITY</code> a router module declares, used in the
+<a href="../usage/#route-order">route order</a>. <code>error</code> says why the declaration is
+invalid: <code>value</code> is then <code>0</code> and the router is re-extracted on every start
+outside strict mode.</p>
+<h3 id="routeinfoscachemismatch"><code>RouteInfosCacheMismatch</code><a class="headerlink" href="#routeinfoscachemismatch" title="Permanent link">&para;</a></h3>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</span><span id="__span-25-2"><a id="__codelineno-25-2" name="__codelineno-25-2" href="#__codelineno-25-2"></a><span class="k">class</span><span class="w"> </span><span class="nc">RouteInfosCacheMismatch</span><span class="p">:</span>
+</span><span id="__span-25-3"><a id="__codelineno-25-3" name="__codelineno-25-3" href="#__codelineno-25-3"></a>    <span class="n">module</span><span class="p">:</span> <span class="nb">str</span>
+</span><span id="__span-25-4"><a id="__codelineno-25-4" name="__codelineno-25-4" href="#__codelineno-25-4"></a>    <span class="n">missing</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">ExtractedRouteInfo</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span>
+</span><span id="__span-25-5"><a id="__codelineno-25-5" name="__codelineno-25-5" href="#__codelineno-25-5"></a>    <span class="n">unexpected</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">ExtractedRouteInfo</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span>
 </span></code></pre></div>
 <p>Returned by <code>verify_route_infos_cache</code>: the route infos a fresh extraction of
 <code>module</code> finds and the cache lacks (<code>missing</code>), and those the cache holds and a
