@@ -3,10 +3,11 @@ import sys
 import pytest
 from conftest import MakePackage
 
-from fastapi_router_lazy import RouteSources
+from fastapi_router_lazy import RouterPriority, RouteSources
 from fastapi_router_lazy.extractors.route_sources import (
     module_file,
     read_route_sources,
+    read_router_priority,
     router_checksum,
 )
 
@@ -88,6 +89,53 @@ class TestReadRouteSources:
         assert result is not None
         assert result.error is not None
         assert error in result.error
+
+
+class TestReadRouterPriority:
+    def test_a_router_without_declaration_has_none(
+        self, make_package: MakePackage
+    ) -> None:
+        package = make_package({"app.router": "router = None"})
+
+        assert read_router_priority(f"{package}.app.router") is None
+
+    @pytest.mark.parametrize(
+        ("declaration", "priority"),
+        [
+            ("ROUTER_LAZY_PRIORITY = 100", 100),
+            ("ROUTER_LAZY_PRIORITY = -5", -5),
+            ("ROUTER_LAZY_PRIORITY: int = 0", 0),
+        ],
+        ids=["positive", "negative", "annotated"],
+    )
+    def test_an_integer_literal_is_the_priority(
+        self, make_package: MakePackage, declaration: str, priority: int
+    ) -> None:
+        package = make_package({"app.router": declaration})
+
+        assert read_router_priority(f"{package}.app.router") == RouterPriority(priority)
+
+    @pytest.mark.parametrize(
+        "declaration",
+        [
+            "ROUTER_LAZY_PRIORITY = True",
+            'ROUTER_LAZY_PRIORITY = "10"',
+            "ROUTER_LAZY_PRIORITY = 1.5",
+            "ROUTER_LAZY_PRIORITY = 2 * 5",
+        ],
+        ids=["bool", "string", "float", "expression"],
+    )
+    def test_a_value_other_than_an_integer_literal_is_an_error(
+        self, make_package: MakePackage, declaration: str
+    ) -> None:
+        package = make_package({"app.router": declaration})
+
+        result = read_router_priority(f"{package}.app.router")
+
+        assert result is not None
+        assert result.value == 0
+        assert result.error is not None
+        assert "ROUTER_LAZY_PRIORITY must be an integer literal" in result.error
 
 
 class TestModuleFile:

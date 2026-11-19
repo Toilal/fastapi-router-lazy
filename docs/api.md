@@ -384,11 +384,14 @@ class CachedExtractedRouteInfos:
     routes: dict[str, list[ExtractedRouteInfo]]
     route_sources: dict[str, RouteSources] = field(default_factory=dict)
     route_sources_read: bool = False
+    router_priorities: dict[str, RouterPriority] = field(default_factory=dict)
+    router_priorities_read: bool = False
 ```
 
 The on-disk cache payload: per-module source checksums, the extracted routes,
-and the route sources of the routers declaring some. `route_sources_read` is
-false for a cache written before route sources existed.
+the route sources of the routers declaring some, and the priorities of the
+routers declaring one. `route_sources_read` and `router_priorities_read` are
+false for a cache written before route sources or router priorities existed.
 
 ### `RouteSources`
 
@@ -402,6 +405,20 @@ class RouteSources:
 The modules a router declares in `__route_sources__`. `error` says why the
 declaration is invalid: such a router is re-extracted on every start outside
 strict mode.
+
+### `RouterPriority`
+
+```python
+@dataclass(frozen=True)
+class RouterPriority:
+    value: int = 0
+    error: str | None = None
+```
+
+The `ROUTER_LAZY_PRIORITY` a router module declares, used in the
+[route order](usage.md#route-order). `error` says why the declaration is
+invalid: `value` is then `0` and the router is re-extracted on every start
+outside strict mode.
 
 ### `RouteInfosCacheMismatch`
 

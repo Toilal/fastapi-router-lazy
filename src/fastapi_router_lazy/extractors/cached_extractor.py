@@ -8,7 +8,9 @@ changed. Generate the cache at build time and ship it; at runtime, set
 
 A router computing its route infos from other modules declares them in
 ``__route_sources__`` (see :mod:`~fastapi_router_lazy.extractors.route_sources`):
-it is checksummed together with them.
+it is checksummed together with them. The ``ROUTER_LAZY_PRIORITY`` a router
+declares is cached too, so the canonical route order is known without
+importing any router.
 """
 
 import dataclasses
@@ -27,11 +29,14 @@ from fastapi_router_lazy.extractors.abc import (
     CachedExtractedRouteInfos,
     ExtractorDefaultsProtocol,
     InitializableExtractor,
+    RouterPriority,
     RouteSources,
 )
 from fastapi_router_lazy.extractors.route_sources import (
     ROUTE_SOURCES_VARIABLE,
+    ROUTER_PRIORITY_VARIABLE,
     read_route_sources,
+    read_router_priority,
     router_checksum,
 )
 from fastapi_router_lazy.route_info import ExtractedRouteInfo
@@ -92,6 +97,13 @@ def _decode_mapping(value: Any) -> dict[str, Any]:
     return value
 
 
+def _decode_router_priority(item: Any) -> RouterPriority:
+    priority = _decode_dataclass(RouterPriority, item)
+    if not isinstance(priority.value, int) or isinstance(priority.value, bool):
+        raise TypeError(f"Expected an integer priority, got {priority.value!r}")
+    return priority
+
+
 def decode_cached_route_infos(data: Any) -> CachedExtractedRouteInfos:
     data = _decode_mapping(data)
     return CachedExtractedRouteInfos(
@@ -105,13 +117,20 @@ def decode_cached_route_infos(data: Any) -> CachedExtractedRouteInfos:
             for module, item in _decode_mapping(data.get("route_sources", {})).items()
         },
         route_sources_read=data.get("route_sources_read", False),
+        router_priorities={
+            module: _decode_router_priority(item)
+            for module, item in _decode_mapping(
+                data.get("router_priorities", {})
+            ).items()
+        },
+        router_priorities_read=data.get("router_priorities_read", False),
     )
 
 
-def _warn_invalid_declaration(error: str) -> None:
+def _warn_invalid_declaration(error: str, variable: str) -> None:
     logger.warning(
         f"{error}: the router is re-extracted on every start outside strict mode "
-        f"until {ROUTE_SOURCES_VARIABLE} is fixed."
+        f"until {variable} is fixed."
     )
 
 
@@ -148,7 +167,9 @@ class CachedRouteInfosExtractor(AbstractRouteInfosExtractor):
         invalid_modules = self.get_invalid_modules()
         if not invalid_modules:
             logger.info("Using cached route infos.")
-            if not self.strict and not self.data.route_sources_read:
+            if not self.strict and not (
+                self.data.route_sources_read and self.data.router_priorities_read
+            ):
                 self.data = self.write_cache_file_from_extractor(
                     self.extractor, self.cache_file, set(), self.data
                 )
@@ -186,11 +207,29 @@ class CachedRouteInfosExtractor(AbstractRouteInfosExtractor):
             if (sources := read_route_sources(name)) is not None
         }
 
+    def router_priorities(self) -> dict[str, RouterPriority]:
+        """The priorities of the cached routers, read from each router file
+        only for a cache written before router priorities existed."""
+        if self.data.router_priorities_read:
+            return self.data.router_priorities
+        return {
+            name: priority
+            for name in self.data.router_checksums
+            if (priority := read_router_priority(name)) is not None
+        }
+
+    def known_router_priority(self, module_name: str) -> int | None:
+        if not self.data.router_priorities_read:
+            return None
+        priority = self.data.router_priorities.get(module_name)
+        return priority.value if priority else 0
+
     def get_invalid_modules(self) -> set[str]:
         router_modules = set(AbstractRouteInfosExtractor.scan_router_modules(self))
 
         cached = self.data.router_checksums
         route_sources = self.route_sources()
+        router_priorities = self.router_priorities()
 
         invalid: set[str] = set()
 
@@ -214,7 +253,14 @@ class CachedRouteInfosExtractor(AbstractRouteInfosExtractor):
             # mode, the extraction that follows reports the declaration.
             if sources and sources.error:
                 if self.strict:
-                    _warn_invalid_declaration(sources.error)
+                    _warn_invalid_declaration(sources.error, ROUTE_SOURCES_VARIABLE)
+                else:
+                    invalid.add(name)
+
+            priority = router_priorities.get(name)
+            if priority and priority.error:
+                if self.strict:
+                    _warn_invalid_declaration(priority.error, ROUTER_PRIORITY_VARIABLE)
                 else:
                     invalid.add(name)
 
@@ -242,10 +288,11 @@ class CachedRouteInfosExtractor(AbstractRouteInfosExtractor):
         data: CachedExtractedRouteInfos | None = None,
     ) -> CachedExtractedRouteInfos:
         """Extract ``module_names`` (default: every router module) into
-        ``cache_file``, along with their route sources.
+        ``cache_file``, along with their route sources and priorities.
 
         For a cache written before route sources existed, every router declaring
-        some is extracted too.
+        some is extracted too. For a cache written before router priorities
+        existed, the priority of every cached router is read.
         """
         if module_names is not None:
             if data is None:
@@ -294,7 +341,7 @@ class CachedRouteInfosExtractor(AbstractRouteInfosExtractor):
             else:
                 data.route_sources[module_name] = sources
                 if sources.error:
-                    _warn_invalid_declaration(sources.error)
+                    _warn_invalid_declaration(sources.error, ROUTE_SOURCES_VARIABLE)
             data.router_checksums[module_name] = router_checksum(
                 module_name,
                 sources.modules if sources else (),
@@ -305,8 +352,24 @@ class CachedRouteInfosExtractor(AbstractRouteInfosExtractor):
             data.routes.pop(deleted, None)
             data.router_checksums.pop(deleted, None)
             data.route_sources.pop(deleted, None)
+            data.router_priorities.pop(deleted, None)
+
+        priority_module_names = (
+            module_names
+            if data.router_priorities_read
+            else module_names | set(data.router_checksums)
+        )
+        for module_name in priority_module_names:
+            priority = read_router_priority(module_name)
+            if priority is None:
+                data.router_priorities.pop(module_name, None)
+            else:
+                data.router_priorities[module_name] = priority
+                if priority.error:
+                    _warn_invalid_declaration(priority.error, ROUTER_PRIORITY_VARIABLE)
 
         data.route_sources_read = True
+        data.router_priorities_read = True
         cls.write_cache_file(data, cache_file)
 
         return data

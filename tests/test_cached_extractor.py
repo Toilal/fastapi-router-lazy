@@ -10,6 +10,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from conftest import MakePackage
+from fastapi import FastAPI
+from starlette.testclient import TestClient
 
 from fastapi_router_lazy import (
     CachedExtractedRouteInfos,
@@ -18,6 +20,7 @@ from fastapi_router_lazy import (
     ExtractorDefaults,
     PlainRouteInfosExtractor,
     RouteInfosCacheMismatch,
+    RouterLoader,
     RouteSources,
     module_checksum,
     verify_route_infos_cache,
@@ -399,6 +402,7 @@ class TestCachedExtractorInit:
             router_checksums={"mod.router": "abc"},
             routes={"mod.router": []},
             route_sources_read=True,
+            router_priorities_read=True,
         )
         mock_read.return_value = cached_data
         mock_invalid.return_value = set()
@@ -790,6 +794,108 @@ class TestRouteSourcesInTheCache:
         _rewrite(f"{package}.config.meta", META_CHANGED)
         with pytest.raises(ValueError, match="Invalid modules detected"):
             _cached(package, cache_file, strict=True)
+
+
+class TestRouterPrioritiesInTheCache:
+    def test_the_cache_knows_the_declared_priorities(
+        self, make_package: MakePackage, tmp_path: Path
+    ) -> None:
+        package = make_package(
+            {
+                "users.router": f"ROUTER_LAZY_PRIORITY = -3\n{USERS_ROUTER}",
+                "items.router": USERS_ROUTER.replace("/users", "/items"),
+            }
+        )
+
+        cached = _cached(package, tmp_path / "routes.json")
+
+        assert cached.known_router_priority(f"{package}.users.router") == -3
+        assert cached.known_router_priority(f"{package}.items.router") == 0
+
+    def test_a_cache_written_without_priorities_keeps_its_routes_and_reads_them(
+        self, make_package: MakePackage, tmp_path: Path
+    ) -> None:
+        package = make_package(
+            {
+                "users.router": f"ROUTER_LAZY_PRIORITY = 7\n{USERS_ROUTER}",
+                "items.router": USERS_ROUTER.replace("/users", "/items"),
+            }
+        )
+        cache_file = tmp_path / "routes.json"
+        _cached(package, cache_file)
+        manifest = json.loads(cache_file.read_text())
+        del manifest["router_priorities"]
+        del manifest["router_priorities_read"]
+        cache_file.write_text(json.dumps(manifest))
+        CachedRouteInfosExtractor.clear_file_cache()
+
+        cached = _cached(package, cache_file)
+        upgraded = json.loads(cache_file.read_text())
+        CachedRouteInfosExtractor.clear_file_cache()
+        reopened = _cached(package, cache_file)
+
+        assert upgraded["routes"] == manifest["routes"]
+        assert upgraded["router_checksums"] == manifest["router_checksums"]
+        assert upgraded["router_priorities_read"] is True
+        for extractor in (cached, reopened):
+            assert extractor.known_router_priority(f"{package}.users.router") == 7
+            assert extractor.known_router_priority(f"{package}.items.router") == 0
+
+        app = FastAPI()
+        RouterLoader(reopened, app).load()
+        client = TestClient(app)
+        assert client.get("/users").json() == ["alice"]
+        assert client.get("/items").json() == ["alice"]
+
+    @pytest.mark.parametrize("value", ["10", True, 1.5, None])
+    def test_a_manifest_with_a_mistyped_priority_is_rebuilt(
+        self,
+        make_package: MakePackage,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+        value: object,
+    ) -> None:
+        package = make_package(
+            {"users.router": f"ROUTER_LAZY_PRIORITY = 7\n{USERS_ROUTER}"}
+        )
+        router = f"{package}.users.router"
+        cache_file = tmp_path / "routes.json"
+        _cached(package, cache_file)
+        manifest = json.loads(cache_file.read_text())
+        manifest["router_priorities"][router]["value"] = value
+        cache_file.write_text(json.dumps(manifest))
+        CachedRouteInfosExtractor.clear_file_cache()
+
+        with caplog.at_level(logging.WARNING):
+            cached = _cached(package, cache_file)
+
+        assert f"Unreadable route infos cache {cache_file}" in caplog.text
+        assert cached.known_router_priority(router) == 7
+
+    def test_an_invalid_priority_re_extracts_the_router_outside_strict_mode(
+        self,
+        make_package: MakePackage,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        package = make_package(
+            {"users.router": f'ROUTER_LAZY_PRIORITY = "high"\n{USERS_ROUTER}'}
+        )
+        router = f"{package}.users.router"
+        cache_file = tmp_path / "routes.json"
+
+        with caplog.at_level(logging.WARNING):
+            cached = _cached(package, cache_file)
+        assert f"{router}: ROUTER_LAZY_PRIORITY must be an integer literal" in (
+            caplog.text
+        )
+        assert router in cached.get_invalid_modules()
+        assert cached.known_router_priority(router) == 0
+
+        caplog.clear()
+        with caplog.at_level(logging.WARNING):
+            _cached(package, cache_file, strict=True)
+        assert "ROUTER_LAZY_PRIORITY must be an integer literal" in caplog.text
 
 
 class TestVerifyRouteInfosCache:

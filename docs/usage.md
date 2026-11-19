@@ -165,9 +165,21 @@ pay nothing for the integration.
 Route order
 -----------
 
-Router modules are mounted in module name order, then router variable order
-within a module, the way a hand-written list of `include_router` calls sorted
-by name would mount them. A router mounted lazily is inserted at that position
+Router modules are mounted in decreasing priority order, then module name
+order, then router variable order within a module, the way a hand-written list
+of `include_router` calls sorted that way would mount them. A module declares
+its priority with a module-level integer, `0` when it declares none:
+
+```python
+ROUTER_LAZY_PRIORITY = 10  # mounted before the modules without a priority
+```
+
+A negative priority mounts the module after the modules without one. The value
+is read from the module's source without importing it, like
+`__route_sources__`, and the route infos cache stores it: a value that is not
+an integer literal is reported as an invalid declaration and counts as `0`.
+
+A router mounted lazily is inserted at its position
 among the routers already mounted, whatever the order of the requests that
 loaded them, so a request that fully matches a route resolves to the same route
 in lazy and eager mode, as long as every router is mounted by `load()` or by a
@@ -188,8 +200,9 @@ shadowed by a router loaded later that matches the same request.
 
 When two routes from different modules are mounted in canonical order and both
 fully match the request, such as `/items/{item_id}` and `/items/special` for
-`/items/special`, the route from the module whose name sorts first takes
-precedence over the other.
+`/items/special`, the route from the module with the higher priority takes
+precedence over the other, then, at equal priority, the route from the module
+whose name sorts first.
 
 Limitations
 -----------

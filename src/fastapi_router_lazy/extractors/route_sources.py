@@ -1,9 +1,10 @@
-"""Modules a router declares its cached route infos depend on.
+"""Declarations a router module makes for the route infos cache.
 
 A router computing its route infos from data declared in other modules lists
 those modules in a module-level ``__route_sources__`` tuple of module names: the
-cache checksums them along with the router. The declaration is read from the
-router's source, without importing anything.
+cache checksums them along with the router. A router declares its place in the
+canonical route order with a module-level ``ROUTER_LAZY_PRIORITY`` integer. Both
+declarations are read from the router's source, without importing anything.
 """
 
 import ast
@@ -12,9 +13,10 @@ from collections.abc import Sequence
 from importlib.util import find_spec
 from pathlib import Path
 
-from fastapi_router_lazy.extractors.abc import RouteSources
+from fastapi_router_lazy.extractors.abc import RouterPriority, RouteSources
 
 ROUTE_SOURCES_VARIABLE = "__route_sources__"
+ROUTER_PRIORITY_VARIABLE = "ROUTER_LAZY_PRIORITY"
 
 
 def module_file(module_name: str) -> Path | None:
@@ -120,6 +122,50 @@ def read_route_sources(module_name: str) -> RouteSources | None:
             f"{module_name}: declared route sources not found: {', '.join(missing)}",
         )
     return RouteSources(found)
+
+
+def read_router_priority(module_name: str) -> RouterPriority | None:
+    """The priority ``module_name`` declares, ``None`` when it declares none.
+
+    A declaration that is not an integer literal gives a
+    :class:`RouterPriority` whose ``error`` says so.
+    """
+    path = module_file(module_name)
+    if path is None:
+        return None
+    try:
+        tree = ast.parse(path.read_bytes(), filename=str(path))
+    except (SyntaxError, ValueError):
+        return None
+
+    values = [
+        value
+        for statement in tree.body
+        for target, value in _assignments(statement)
+        if target == ROUTER_PRIORITY_VARIABLE
+    ]
+    if not values:
+        return None
+    priority = _integer_literal(values[-1])
+    if priority is None:
+        return RouterPriority(
+            0, f"{module_name}: {ROUTER_PRIORITY_VARIABLE} must be an integer literal"
+        )
+    return RouterPriority(priority)
+
+
+def _integer_literal(value: ast.expr) -> int | None:
+    sign = 1
+    if isinstance(value, ast.UnaryOp) and isinstance(value.op, (ast.USub, ast.UAdd)):
+        sign = -1 if isinstance(value.op, ast.USub) else 1
+        value = value.operand
+    if (
+        isinstance(value, ast.Constant)
+        and isinstance(value.value, int)
+        and not isinstance(value.value, bool)
+    ):
+        return sign * value.value
+    return None
 
 
 def _assignments(statement: ast.stmt) -> list[tuple[str, ast.expr]]:

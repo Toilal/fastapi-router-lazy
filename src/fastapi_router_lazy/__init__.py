@@ -12,6 +12,7 @@ from fastapi_router_lazy.extractors.abc import (
     ExtractorDefaults,
     ExtractorDefaultsProtocol,
     InitializableExtractor,
+    RouterPriority,
     RouteSources,
 )
 from fastapi_router_lazy.extractors.cached_extractor import (
@@ -72,6 +73,7 @@ __all__ = [
     "RouteType",
     "RouterLoader",
     "RouterLoaderMeta",
+    "RouterPriority",
     "SandboxRouteInfosExtractor",
     "__version__",
     "extract_routes_from_module",
